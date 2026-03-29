@@ -14,15 +14,26 @@ const SESSION_COOKIE_NAME = "grangettes_admin_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
-const DATA_FILE = path.join(DATA_DIR, "schedule.json");
+const SEED_DATA_FILE = path.join(DATA_DIR, "schedule.json");
+const RUNTIME_DATA_FILE = path.join(DATA_DIR, "schedule.local.json");
+const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 const sessions = new Map();
 
 function ensureDataFile() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  if (!fs.existsSync(DATA_FILE)) {
+  if (!fs.existsSync(SEED_DATA_FILE)) {
     const seed = createSeedData();
-    fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
+    fs.writeFileSync(SEED_DATA_FILE, JSON.stringify(seed, null, 2));
+  }
+
+  if (!fs.existsSync(RUNTIME_DATA_FILE)) {
+    fs.copyFileSync(SEED_DATA_FILE, RUNTIME_DATA_FILE);
+  }
+
+  if (!fs.existsSync(CONFIG_FILE)) {
+    const config = createDefaultConfig();
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
   }
 }
 
@@ -58,6 +69,12 @@ function createSeedData() {
     members,
     days,
     assignments
+  };
+}
+
+function createDefaultConfig() {
+  return {
+    title: "Tableau des permanences Grangettes"
   };
 }
 
@@ -305,11 +322,15 @@ function requireAdmin(request, response) {
 }
 
 function loadSchedule() {
-  return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  return JSON.parse(fs.readFileSync(RUNTIME_DATA_FILE, "utf8"));
 }
 
 function saveSchedule(schedule) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(schedule, null, 2));
+  fs.writeFileSync(RUNTIME_DATA_FILE, JSON.stringify(schedule, null, 2));
+}
+
+function loadConfig() {
+  return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
 }
 
 function getContentType(filePath) {
@@ -378,7 +399,10 @@ function readRequestBody(request) {
 
 async function handleApi(request, response, pathname) {
   if (request.method === "GET" && pathname === "/api/schedule") {
-    sendJson(response, 200, loadSchedule());
+    sendJson(response, 200, {
+      ...loadSchedule(),
+      config: loadConfig()
+    });
     return true;
   }
 
@@ -569,8 +593,10 @@ if (require.main === module) {
 module.exports = {
   buildUpcomingClubDays,
   createSeedData,
+  createDefaultConfig,
   ensureAssignmentsForDays,
   hashPassword,
+  loadConfig,
   loadSchedule,
   normalizeDays,
   normalizeMembers,

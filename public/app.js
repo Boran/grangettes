@@ -1,4 +1,5 @@
 const memberSelect = document.querySelector("#member-select");
+const pageTitle = document.querySelector("#page-title");
 const selectionHint = document.querySelector("#selection-hint");
 const availabilityTable = document.querySelector("#availability-table");
 const resetButton = document.querySelector("#reset-button");
@@ -29,6 +30,9 @@ const weekdayFormatter = new Intl.DateTimeFormat("fr-CH", {
 let schedule = null;
 let selectedMemberId = "";
 let isAdminAuthenticated = false;
+let pollingHandle = null;
+let isApplyingRemoteUpdate = false;
+const POLL_INTERVAL_MS = 5000;
 
 async function loadSchedule() {
   const [scheduleResponse, sessionResponse] = await Promise.all([
@@ -47,10 +51,17 @@ async function loadSchedule() {
 }
 
 function render() {
+  renderTitle();
   renderMemberSelect();
   renderAdminState();
   renderSettingsEditors();
   renderTable();
+}
+
+function renderTitle() {
+  const title = schedule?.config?.title || "Tableau des permanences Grangettes";
+  pageTitle.textContent = title;
+  document.title = title;
 }
 
 function renderMemberSelect() {
@@ -76,6 +87,10 @@ function renderAdminState() {
 }
 
 function renderSettingsEditors() {
+  if (isApplyingRemoteUpdate) {
+    return;
+  }
+
   membersEditor.value = schedule.members.map((member) => member.name).join("\n");
   daysEditor.value = schedule.days.join("\n");
 }
@@ -233,6 +248,58 @@ async function updateDays(days) {
   render();
 }
 
+function schedulesDiffer(nextSchedule) {
+  return JSON.stringify(schedule) !== JSON.stringify(nextSchedule);
+}
+
+function isEditingField() {
+  const activeElement = document.activeElement;
+
+  if (!activeElement) {
+    return false;
+  }
+
+  const tagName = activeElement.tagName;
+  if (tagName !== "TEXTAREA" && tagName !== "INPUT") {
+    return false;
+  }
+
+  return true;
+}
+
+async function refreshScheduleSilently() {
+  const response = await fetch("/api/schedule", {
+    cache: "no-store"
+  });
+  const nextSchedule = await response.json();
+
+  if (!schedule || schedulesDiffer(nextSchedule)) {
+    if (isEditingField()) {
+      return;
+    }
+
+    isApplyingRemoteUpdate = false;
+    schedule = nextSchedule;
+
+    if (!schedule.members.some((member) => member.id === selectedMemberId)) {
+      selectedMemberId = schedule.members[0]?.id || "";
+    }
+
+    render();
+    isApplyingRemoteUpdate = false;
+  }
+}
+
+function startPolling() {
+  if (pollingHandle) {
+    return;
+  }
+
+  pollingHandle = window.setInterval(() => {
+    refreshScheduleSilently().catch(() => {});
+  }, POLL_INTERVAL_MS);
+}
+
 function capitalize(text) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -362,6 +429,14 @@ saveDaysButton.addEventListener("click", async () => {
   }
 });
 
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    refreshScheduleSilently().catch(() => {});
+  }
+});
+
 loadSchedule().catch((error) => {
   selectionHint.textContent = `Impossible de charger le planning : ${error.message}`;
 });
+
+startPolling();

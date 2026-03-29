@@ -9,6 +9,7 @@ Prototype léger sur une seule page pour gérer les inscriptions aux permanences
 - Permet de modifier la liste des membres et les dates depuis une zone d'administration protégée
 - Ajoute une colonne de commentaires libres par date
 - Utilise une session administrateur par cookie HTTP et un mot de passe haché
+- Recharge automatiquement le planning toutes les quelques secondes
 - Stocke l'état partagé dans un fichier JSON local
 
 ## Lancement local
@@ -57,4 +58,15 @@ Note importante : cette conservation se fait par position dans la liste d'admini
 
 - `server.js` : petit serveur HTTP et API JSON
 - `public/` : interface web en une page
-- `data/schedule.json` : planning partagé persistant, créé automatiquement au premier lancement
+- `data/config.json` : configuration simple, dont le titre du tableau
+- `data/schedule.json` : planning seed/de démonstration conservé dans git
+- `data/schedule.local.json` : planning runtime local, créé automatiquement et ignoré par git
+
+## Persistance des données
+
+Pour l'instant :
+
+- `data/schedule.json` sert de base propre à versionner
+- `data/schedule.local.json` reçoit les vraies modifications à l'exécution
+
+Ce choix est bien adapté à un petit prototype sur VPS. Si le projet devient plus important, SQLite sera probablement la meilleure étape suivante.
