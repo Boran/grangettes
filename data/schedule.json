@@ -1,0 +1,129 @@
+{
+  "clubName": "Grangettes Club",
+  "slots": [
+    "morning",
+    "afternoon"
+  ],
+  "members": [
+    {
+      "id": "sean",
+      "name": "Sean"
+    },
+    {
+      "id": "bob",
+      "name": "Bob"
+    },
+    {
+      "id": "camille",
+      "name": "Camille"
+    },
+    {
+      "id": "daniel",
+      "name": "Daniel"
+    },
+    {
+      "id": "emma",
+      "name": "Emma"
+    },
+    {
+      "id": "felix",
+      "name": "Felix"
+    },
+    {
+      "id": "jim",
+      "name": "Jim"
+    },
+    {
+      "id": "julie",
+      "name": "Julie"
+    },
+    {
+      "id": "leo",
+      "name": "Leo"
+    },
+    {
+      "id": "martine",
+      "name": "Martine"
+    },
+    {
+      "id": "nina",
+      "name": "Nina"
+    }
+  ],
+  "days": [
+    "2026-03-29",
+    "2026-04-03",
+    "2026-04-04",
+    "2026-04-05",
+    "2026-04-10",
+    "2026-04-11",
+    "2026-04-12",
+    "2026-04-17",
+    "2026-04-18",
+    "2026-04-19",
+    "2026-04-24",
+    "2026-04-25"
+  ],
+  "assignments": {
+    "2026-03-29": {
+      "morning": "leo",
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-03": {
+      "morning": null,
+      "afternoon": "leo",
+      "comment": "note 1"
+    },
+    "2026-04-04": {
+      "morning": null,
+      "afternoon": null,
+      "comment": "note 2"
+    },
+    "2026-04-05": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-10": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-11": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-12": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-17": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-18": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-19": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-24": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    },
+    "2026-04-25": {
+      "morning": null,
+      "afternoon": null,
+      "comment": ""
+    }
+  }
+}

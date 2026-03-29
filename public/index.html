@@ -31,23 +31,38 @@
         <section class="panel">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Vue rapide</p>
-              <h2>Créneaux encore libres</h2>
+              <p class="eyebrow">Vue tableau</p>
+              <h2>Inscriptions par jour</h2>
             </div>
-            <p class="panel-copy">Permet de repérer d'un coup d'oeil les créneaux à couvrir.</p>
+            <p class="panel-copy">Une personne par créneau, avec commentaire libre par date.</p>
           </div>
-          <div id="summary-grid" class="summary-grid"></div>
+          <div class="table-wrap">
+            <table id="availability-table" class="availability-table"></table>
+          </div>
         </section>
 
         <section class="panel">
           <div class="panel-heading">
             <div>
-              <p class="eyebrow">Paramètres</p>
-              <h2>Membres et dates</h2>
+              <p class="eyebrow">Administration</p>
+              <h2>Modifier membres et dates</h2>
             </div>
-            <p class="panel-copy">Modifiez la liste des membres et les dates visibles du planning.</p>
+            <p class="panel-copy">Accès réservé à l'administration du club.</p>
           </div>
-          <div class="settings-grid">
+
+          <div id="admin-login" class="settings-card">
+            <label class="control-label" for="admin-username">Nom d'utilisateur admin</label>
+            <input id="admin-username" class="settings-input" type="text" autocomplete="username" />
+            <label class="control-label" for="admin-password">Mot de passe admin</label>
+            <input id="admin-password" class="settings-input" type="password" autocomplete="current-password" />
+            <div class="admin-actions">
+              <button id="admin-login-button" class="secondary-button" type="button">Déverrouiller l'édition</button>
+              <button id="admin-logout-button" class="secondary-button" type="button">Verrouiller</button>
+            </div>
+            <p id="admin-feedback" class="selection-hint"></p>
+          </div>
+
+          <div id="admin-editors" class="settings-grid is-hidden">
             <div class="settings-card">
               <label class="control-label" for="members-editor">Membres</label>
               <p class="settings-help">Un nom par ligne.</p>
@@ -63,28 +78,8 @@
           </div>
           <p id="settings-feedback" class="selection-hint"></p>
         </section>
-
-        <section class="panel">
-          <div class="panel-heading">
-            <div>
-              <p class="eyebrow">Vue tableau</p>
-              <h2>Inscriptions par jour</h2>
-            </div>
-            <p class="panel-copy">Une personne par créneau, avec commentaire libre par date.</p>
-          </div>
-          <div class="table-wrap">
-            <table id="availability-table" class="availability-table"></table>
-          </div>
-        </section>
       </main>
     </div>
-
-    <template id="summary-card-template">
-      <article class="summary-card">
-        <div class="summary-date"></div>
-        <div class="summary-slots"></div>
-      </article>
-    </template>
 
     <script src="/app.js"></script>
   </body>

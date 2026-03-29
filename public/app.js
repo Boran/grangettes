@@ -1,9 +1,14 @@
 const memberSelect = document.querySelector("#member-select");
 const selectionHint = document.querySelector("#selection-hint");
-const summaryGrid = document.querySelector("#summary-grid");
 const availabilityTable = document.querySelector("#availability-table");
 const resetButton = document.querySelector("#reset-button");
-const summaryTemplate = document.querySelector("#summary-card-template");
+const adminLoginSection = document.querySelector("#admin-login");
+const adminEditors = document.querySelector("#admin-editors");
+const adminUsernameInput = document.querySelector("#admin-username");
+const adminPasswordInput = document.querySelector("#admin-password");
+const adminLoginButton = document.querySelector("#admin-login-button");
+const adminLogoutButton = document.querySelector("#admin-logout-button");
+const adminFeedback = document.querySelector("#admin-feedback");
 const membersEditor = document.querySelector("#members-editor");
 const daysEditor = document.querySelector("#days-editor");
 const saveMembersButton = document.querySelector("#save-members-button");
@@ -23,6 +28,7 @@ const weekdayFormatter = new Intl.DateTimeFormat("fr-CH", {
 
 let schedule = null;
 let selectedMemberId = "";
+let adminAuthHeader = "";
 
 async function loadSchedule() {
   const response = await fetch("/api/schedule");
@@ -37,7 +43,7 @@ async function loadSchedule() {
 
 function render() {
   renderMemberSelect();
-  renderSummary();
+  renderAdminState();
   renderSettingsEditors();
   renderTable();
 }
@@ -59,29 +65,9 @@ function renderMemberSelect() {
     : "Choisissez un membre pour commencer.";
 }
 
-function renderSummary() {
-  summaryGrid.innerHTML = "";
-
-  schedule.days.forEach((day) => {
-    const fragment = summaryTemplate.content.cloneNode(true);
-    const dateNode = fragment.querySelector(".summary-date");
-    const slotsNode = fragment.querySelector(".summary-slots");
-    dateNode.textContent = weekdayFormatter.format(new Date(`${day}T12:00:00`));
-
-    schedule.slots.forEach((slot) => {
-      const pill = document.createElement("div");
-      pill.className = "slot-pill";
-      const ownerId = schedule.assignments?.[day]?.[slot];
-      const owner = schedule.members.find((member) => member.id === ownerId);
-      pill.innerHTML = `<span>${slotLabels[slot]}</span><strong>${owner ? owner.name : "Libre"}</strong>`;
-      if (!owner) {
-        pill.classList.add("slot-pill--open");
-      }
-      slotsNode.append(pill);
-    });
-
-    summaryGrid.append(fragment);
-  });
+function renderAdminState() {
+  adminEditors.classList.toggle("is-hidden", !adminAuthHeader);
+  adminLoginSection.classList.toggle("is-hidden", Boolean(adminAuthHeader));
 }
 
 function renderSettingsEditors() {
@@ -198,7 +184,8 @@ async function updateMembers(memberNames) {
   const response = await fetch("/api/members", {
     method: "PUT",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      Authorization: adminAuthHeader
     },
     body: JSON.stringify({ members: memberNames })
   });
@@ -222,7 +209,8 @@ async function updateDays(days) {
   const response = await fetch("/api/days", {
     method: "PUT",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      Authorization: adminAuthHeader
     },
     body: JSON.stringify({ days })
   });
@@ -239,6 +227,27 @@ async function updateDays(days) {
 
 function capitalize(text) {
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function buildAdminAuthHeader(username, password) {
+  return `Basic ${btoa(`${username}:${password}`)}`;
+}
+
+async function checkAdminCredentials(username, password) {
+  const candidateHeader = buildAdminAuthHeader(username, password);
+  const response = await fetch("/api/admin/check", {
+    headers: {
+      Authorization: candidateHeader
+    }
+  });
+
+  if (!response.ok) {
+    const payload = await response.json();
+    throw new Error(payload.error || "Identifiants administrateur invalides");
+  }
+
+  adminAuthHeader = candidateHeader;
+  render();
 }
 
 memberSelect.addEventListener("change", (event) => {
@@ -274,13 +283,50 @@ availabilityTable.addEventListener("change", async (event) => {
 });
 
 resetButton.addEventListener("click", async () => {
-  const response = await fetch("/api/reset", { method: "POST" });
-  schedule = await response.json();
+  if (!adminAuthHeader) {
+    settingsFeedback.textContent = "Connexion administrateur requise pour réinitialiser la démo.";
+    return;
+  }
+
+  const response = await fetch("/api/reset", {
+    method: "POST",
+    headers: {
+      Authorization: adminAuthHeader
+    }
+  });
+  const payload = await response.json();
+
+  if (!response.ok) {
+    settingsFeedback.textContent = payload.error || "Impossible de réinitialiser la démo.";
+    return;
+  }
+
+  schedule = payload;
 
   if (!schedule.members.some((member) => member.id === selectedMemberId)) {
     selectedMemberId = schedule.members[0]?.id || "";
   }
 
+  settingsFeedback.textContent = "Données de démonstration réinitialisées.";
+  render();
+});
+
+adminLoginButton.addEventListener("click", async () => {
+  try {
+    await checkAdminCredentials(adminUsernameInput.value.trim(), adminPasswordInput.value);
+    adminFeedback.textContent = "Édition déverrouillée.";
+    settingsFeedback.textContent = "";
+    adminPasswordInput.value = "";
+  } catch (error) {
+    adminFeedback.textContent = error.message;
+  }
+});
+
+adminLogoutButton.addEventListener("click", () => {
+  adminAuthHeader = "";
+  adminPasswordInput.value = "";
+  adminFeedback.textContent = "Accès administrateur verrouillé.";
+  settingsFeedback.textContent = "";
   render();
 });
 

@@ -6,8 +6,7 @@ Prototype léger sur une seule page pour gérer les inscriptions aux permanences
 
 - Affiche un tableau partagé de type feuille de calcul
 - Permet de choisir un membre puis de l'inscrire ou de le retirer d'un créneau `Matin` / `Après-midi`
-- Permet de modifier la liste des membres depuis l'interface
-- Permet de modifier les dates affichées depuis l'interface
+- Permet de modifier la liste des membres et les dates depuis une zone d'administration protégée
 - Ajoute une colonne de commentaires libres par date
 - Stocke l'état partagé dans un fichier JSON local
 
@@ -18,6 +17,15 @@ npm start
 ```
 
 Puis ouvrez [http://localhost:3000](http://localhost:3000).
+
+## Administration
+
+Par défaut, l'administration utilise :
+
+- identifiant : `admin`
+- mot de passe : `grangettes`
+
+Vous pouvez les changer avec les variables d'environnement `ADMIN_USERNAME` et `ADMIN_PASSWORD`.
 
 ## Pourquoi ce choix
 

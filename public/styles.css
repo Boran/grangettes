@@ -132,12 +132,6 @@ select {
   margin-bottom: 20px;
 }
 
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 14px;
-}
-
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -170,37 +164,25 @@ select {
   resize: vertical;
 }
 
-.summary-card {
-  padding: 16px;
-  border-radius: 18px;
-  background: var(--card-strong);
+.settings-input {
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--text);
+  font: inherit;
 }
 
-.summary-date {
-  margin-bottom: 12px;
-  font-weight: 700;
-}
-
-.summary-slots {
-  display: grid;
-  gap: 8px;
-}
-
-.slot-pill {
+.admin-actions {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 0.92rem;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.slot-pill--open {
-  background: rgba(233, 180, 76, 0.18);
-  color: #7a5513;
+.is-hidden {
+  display: none;
 }
 
 .table-wrap {

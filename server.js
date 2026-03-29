@@ -5,6 +5,8 @@ const { URL } = require("url");
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "grangettes";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "schedule.json");
@@ -161,6 +163,40 @@ function sendText(response, statusCode, text) {
   response.end(text);
 }
 
+function getAdminCredentials() {
+  return `${ADMIN_USERNAME}:${ADMIN_PASSWORD}`;
+}
+
+function isAuthorized(request) {
+  const header = request.headers.authorization || "";
+
+  if (!header.startsWith("Basic ")) {
+    return false;
+  }
+
+  const encoded = header.slice("Basic ".length).trim();
+
+  try {
+    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    return decoded === getAdminCredentials();
+  } catch (_error) {
+    return false;
+  }
+}
+
+function requireAdmin(request, response) {
+  if (isAuthorized(request)) {
+    return true;
+  }
+
+  response.writeHead(401, {
+    "Content-Type": "application/json; charset=utf-8",
+    "WWW-Authenticate": 'Basic realm="Administration Grangettes"'
+  });
+  response.end(JSON.stringify({ error: "Authentification administrateur requise" }));
+  return false;
+}
+
 function loadSchedule() {
   return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
 }
@@ -239,6 +275,15 @@ async function handleApi(request, response, pathname) {
     return true;
   }
 
+  if (request.method === "GET" && pathname === "/api/admin/check") {
+    if (!requireAdmin(request, response)) {
+      return true;
+    }
+
+    sendJson(response, 200, { ok: true });
+    return true;
+  }
+
   if (request.method === "PUT" && pathname === "/api/availability") {
     const raw = await readRequestBody(request);
     const payload = JSON.parse(raw || "{}");
@@ -292,6 +337,10 @@ async function handleApi(request, response, pathname) {
   }
 
   if (request.method === "PUT" && pathname === "/api/members") {
+    if (!requireAdmin(request, response)) {
+      return true;
+    }
+
     const raw = await readRequestBody(request);
     const payload = JSON.parse(raw || "{}");
     const members = normalizeMembers(payload.members || []);
@@ -322,6 +371,10 @@ async function handleApi(request, response, pathname) {
   }
 
   if (request.method === "PUT" && pathname === "/api/days") {
+    if (!requireAdmin(request, response)) {
+      return true;
+    }
+
     const raw = await readRequestBody(request);
     const payload = JSON.parse(raw || "{}");
     const days = normalizeDays(payload.days || []);
@@ -341,6 +394,10 @@ async function handleApi(request, response, pathname) {
   }
 
   if (request.method === "POST" && pathname === "/api/reset") {
+    if (!requireAdmin(request, response)) {
+      return true;
+    }
+
     const fresh = createSeedData();
     saveSchedule(fresh);
     sendJson(response, 200, fresh);
