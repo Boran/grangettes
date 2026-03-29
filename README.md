@@ -8,6 +8,7 @@ Prototype léger sur une seule page pour gérer les inscriptions aux permanences
 - Permet de choisir un membre puis de l'inscrire ou de le retirer d'un créneau `Matin` / `Après-midi`
 - Permet de modifier la liste des membres et les dates depuis une zone d'administration protégée
 - Ajoute une colonne de commentaires libres par date
+- Utilise une session administrateur par cookie HTTP et un mot de passe haché
 - Stocke l'état partagé dans un fichier JSON local
 
 ## Lancement local
@@ -25,7 +26,25 @@ Par défaut, l'administration utilise :
 - identifiant : `admin`
 - mot de passe : `grangettes`
 
-Vous pouvez les changer avec les variables d'environnement `ADMIN_USERNAME` et `ADMIN_PASSWORD`.
+Pour un vrai déploiement, créez un hash avec :
+
+```bash
+npm run hash-password -- "votre-mot-de-passe"
+```
+
+Puis lancez l'application avec :
+
+```bash
+ADMIN_USERNAME=admin ADMIN_PASSWORD_HASH='scrypt$...' npm start
+```
+
+L'interface d'administration utilise ensuite une session par cookie HTTP-only.
+
+## Renommage des membres
+
+Un renommage simple comme `Alice` vers `Alice Johnson` conserve désormais l'identité interne du membre et donc ses créneaux existants.
+
+Note importante : cette conservation se fait par position dans la liste d'administration. Si vous réordonnez fortement la liste ou fusionnez plusieurs noms en même temps, il faut vérifier le résultat.
 
 ## Pourquoi ce choix
 

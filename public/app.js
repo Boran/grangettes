@@ -28,11 +28,16 @@ const weekdayFormatter = new Intl.DateTimeFormat("fr-CH", {
 
 let schedule = null;
 let selectedMemberId = "";
-let adminAuthHeader = "";
+let isAdminAuthenticated = false;
 
 async function loadSchedule() {
-  const response = await fetch("/api/schedule");
-  schedule = await response.json();
+  const [scheduleResponse, sessionResponse] = await Promise.all([
+    fetch("/api/schedule"),
+    fetch("/api/admin/session")
+  ]);
+  schedule = await scheduleResponse.json();
+  const session = await sessionResponse.json();
+  isAdminAuthenticated = Boolean(session.authenticated);
 
   if (!selectedMemberId && schedule.members.length > 0) {
     selectedMemberId = schedule.members[0].id;
@@ -66,8 +71,8 @@ function renderMemberSelect() {
 }
 
 function renderAdminState() {
-  adminEditors.classList.toggle("is-hidden", !adminAuthHeader);
-  adminLoginSection.classList.toggle("is-hidden", Boolean(adminAuthHeader));
+  adminEditors.classList.toggle("is-hidden", !isAdminAuthenticated);
+  adminLoginSection.classList.toggle("is-hidden", isAdminAuthenticated);
 }
 
 function renderSettingsEditors() {
@@ -181,13 +186,17 @@ async function updateComment(day, comment) {
 }
 
 async function updateMembers(memberNames) {
+  const members = memberNames.map((name, index) => ({
+    id: schedule.members[index]?.id || "",
+    name
+  }));
+
   const response = await fetch("/api/members", {
     method: "PUT",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: adminAuthHeader
+      "Content-Type": "application/json"
     },
-    body: JSON.stringify({ members: memberNames })
+    body: JSON.stringify({ members })
   });
 
   const payload = await response.json();
@@ -209,8 +218,7 @@ async function updateDays(days) {
   const response = await fetch("/api/days", {
     method: "PUT",
     headers: {
-      "Content-Type": "application/json",
-      Authorization: adminAuthHeader
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ days })
   });
@@ -229,24 +237,22 @@ function capitalize(text) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function buildAdminAuthHeader(username, password) {
-  return `Basic ${btoa(`${username}:${password}`)}`;
-}
-
 async function checkAdminCredentials(username, password) {
-  const candidateHeader = buildAdminAuthHeader(username, password);
-  const response = await fetch("/api/admin/check", {
+  const response = await fetch("/api/admin/login", {
+    method: "POST",
     headers: {
-      Authorization: candidateHeader
-    }
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ username, password })
   });
 
+  const payload = await response.json();
+
   if (!response.ok) {
-    const payload = await response.json();
     throw new Error(payload.error || "Identifiants administrateur invalides");
   }
 
-  adminAuthHeader = candidateHeader;
+  isAdminAuthenticated = Boolean(payload.authenticated);
   render();
 }
 
@@ -283,16 +289,13 @@ availabilityTable.addEventListener("change", async (event) => {
 });
 
 resetButton.addEventListener("click", async () => {
-  if (!adminAuthHeader) {
+  if (!isAdminAuthenticated) {
     settingsFeedback.textContent = "Connexion administrateur requise pour réinitialiser la démo.";
     return;
   }
 
   const response = await fetch("/api/reset", {
-    method: "POST",
-    headers: {
-      Authorization: adminAuthHeader
-    }
+    method: "POST"
   });
   const payload = await response.json();
 
@@ -323,7 +326,8 @@ adminLoginButton.addEventListener("click", async () => {
 });
 
 adminLogoutButton.addEventListener("click", () => {
-  adminAuthHeader = "";
+  fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+  isAdminAuthenticated = false;
   adminPasswordInput.value = "";
   adminFeedback.textContent = "Accès administrateur verrouillé.";
   settingsFeedback.textContent = "";

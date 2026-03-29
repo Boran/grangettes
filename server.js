@@ -1,4 +1,5 @@
 const http = require("http");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
@@ -6,10 +7,15 @@ const { URL } = require("url");
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "grangettes";
+const DEFAULT_ADMIN_PASSWORD_HASH =
+  "scrypt$4e4856adb4313849db418589202ff8be$c480266124b794927c767d57931a184bd798fbbdf142b4b87e82cc6a3f397775bb37f2a9209e3953c67edda5f1ce0724b2142298e55a31b2face0e2dea9be2c3";
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || DEFAULT_ADMIN_PASSWORD_HASH;
+const SESSION_COOKIE_NAME = "grangettes_admin_session";
+const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "schedule.json");
+const sessions = new Map();
 
 function ensureDataFile() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -96,14 +102,26 @@ function slugifyMemberName(name) {
     .replace(/^-+|-+$/g, "") || "membre";
 }
 
-function normalizeMembers(rawMembers) {
+function normalizeMembers(rawMembers, existingMembers = []) {
   const usedIds = new Set();
 
   return rawMembers
-    .map((value) => String(value || "").trim())
-    .filter(Boolean)
-    .map((name, index) => {
-      const baseId = slugifyMemberName(name) || `membre-${index + 1}`;
+    .map((value, index) => {
+      if (typeof value === "string") {
+        return {
+          id: existingMembers[index]?.id || "",
+          name: value.trim()
+        };
+      }
+
+      return {
+        id: String(value?.id || existingMembers[index]?.id || "").trim(),
+        name: String(value?.name || "").trim()
+      };
+    })
+    .filter((member) => member.name)
+    .map((member, index) => {
+      const baseId = member.id || slugifyMemberName(member.name) || `membre-${index + 1}`;
       let candidateId = baseId;
       let suffix = 2;
 
@@ -113,7 +131,7 @@ function normalizeMembers(rawMembers) {
       }
 
       usedIds.add(candidateId);
-      return { id: candidateId, name };
+      return { id: candidateId, name: member.name };
     });
 }
 
@@ -163,35 +181,124 @@ function sendText(response, statusCode, text) {
   response.end(text);
 }
 
-function getAdminCredentials() {
-  return `${ADMIN_USERNAME}:${ADMIN_PASSWORD}`;
+function hashPassword(password, salt) {
+  return crypto.scryptSync(password, salt, 64);
 }
 
-function isAuthorized(request) {
-  const header = request.headers.authorization || "";
+function verifyPassword(password, encodedHash) {
+  const [algorithm, salt, storedHashHex] = String(encodedHash || "").split("$");
 
-  if (!header.startsWith("Basic ")) {
+  if (algorithm !== "scrypt" || !salt || !storedHashHex) {
     return false;
   }
 
-  const encoded = header.slice("Basic ".length).trim();
-
   try {
-    const decoded = Buffer.from(encoded, "base64").toString("utf8");
-    return decoded === getAdminCredentials();
+    const storedHash = Buffer.from(storedHashHex, "hex");
+    const candidateHash = hashPassword(password, salt);
+
+    if (storedHash.length !== candidateHash.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(storedHash, candidateHash);
   } catch (_error) {
     return false;
   }
 }
 
+function parseCookies(request) {
+  const header = request.headers.cookie || "";
+  const cookies = {};
+
+  header.split(";").forEach((part) => {
+    const [rawKey, ...rawValue] = part.trim().split("=");
+    if (!rawKey) {
+      return;
+    }
+    cookies[rawKey] = decodeURIComponent(rawValue.join("="));
+  });
+
+  return cookies;
+}
+
+function appendSetCookie(response, value) {
+  const existing = response.getHeader("Set-Cookie");
+
+  if (!existing) {
+    response.setHeader("Set-Cookie", value);
+    return;
+  }
+
+  if (Array.isArray(existing)) {
+    response.setHeader("Set-Cookie", [...existing, value]);
+    return;
+  }
+
+  response.setHeader("Set-Cookie", [existing, value]);
+}
+
+function createSession(username) {
+  const token = crypto.randomBytes(24).toString("hex");
+  sessions.set(token, {
+    username,
+    expiresAt: Date.now() + SESSION_TTL_MS
+  });
+  return token;
+}
+
+function cleanupSessions() {
+  const now = Date.now();
+
+  for (const [token, session] of sessions.entries()) {
+    if (session.expiresAt <= now) {
+      sessions.delete(token);
+    }
+  }
+}
+
+function getSession(request) {
+  cleanupSessions();
+  const cookies = parseCookies(request);
+  const token = cookies[SESSION_COOKIE_NAME];
+
+  if (!token) {
+    return null;
+  }
+
+  const session = sessions.get(token);
+
+  if (!session || session.expiresAt <= Date.now()) {
+    sessions.delete(token);
+    return null;
+  }
+
+  session.expiresAt = Date.now() + SESSION_TTL_MS;
+  return { token, ...session };
+}
+
+function setSessionCookie(response, token) {
+  appendSetCookie(
+    response,
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${Math.floor(
+      SESSION_TTL_MS / 1000
+    )}`
+  );
+}
+
+function clearSessionCookie(response) {
+  appendSetCookie(
+    response,
+    `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`
+  );
+}
+
 function requireAdmin(request, response) {
-  if (isAuthorized(request)) {
+  if (getSession(request)) {
     return true;
   }
 
   response.writeHead(401, {
-    "Content-Type": "application/json; charset=utf-8",
-    "WWW-Authenticate": 'Basic realm="Administration Grangettes"'
+    "Content-Type": "application/json; charset=utf-8"
   });
   response.end(JSON.stringify({ error: "Authentification administrateur requise" }));
   return false;
@@ -275,12 +382,41 @@ async function handleApi(request, response, pathname) {
     return true;
   }
 
-  if (request.method === "GET" && pathname === "/api/admin/check") {
-    if (!requireAdmin(request, response)) {
+  if (request.method === "GET" && pathname === "/api/admin/session") {
+    const session = getSession(request);
+    sendJson(response, 200, {
+      authenticated: Boolean(session),
+      username: session?.username || null
+    });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/login") {
+    const raw = await readRequestBody(request);
+    const payload = JSON.parse(raw || "{}");
+    const username = String(payload.username || "").trim();
+    const password = String(payload.password || "");
+
+    if (username !== ADMIN_USERNAME || !verifyPassword(password, ADMIN_PASSWORD_HASH)) {
+      sendJson(response, 401, { error: "Identifiants administrateur invalides" });
       return true;
     }
 
-    sendJson(response, 200, { ok: true });
+    const token = createSession(username);
+    setSessionCookie(response, token);
+    sendJson(response, 200, { authenticated: true, username });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/logout") {
+    const session = getSession(request);
+
+    if (session) {
+      sessions.delete(session.token);
+    }
+
+    clearSessionCookie(response);
+    sendJson(response, 200, { authenticated: false });
     return true;
   }
 
@@ -343,14 +479,14 @@ async function handleApi(request, response, pathname) {
 
     const raw = await readRequestBody(request);
     const payload = JSON.parse(raw || "{}");
-    const members = normalizeMembers(payload.members || []);
+    const schedule = loadSchedule();
+    const members = normalizeMembers(payload.members || [], schedule.members);
 
     if (members.length === 0) {
       sendJson(response, 400, { error: "La liste des membres est invalide" });
       return true;
     }
 
-    const schedule = loadSchedule();
     const allowedMemberIds = new Set(members.map((member) => member.id));
     const assignments = ensureAssignmentsForDays(schedule.days, schedule.assignments);
 
@@ -434,9 +570,12 @@ module.exports = {
   buildUpcomingClubDays,
   createSeedData,
   ensureAssignmentsForDays,
+  hashPassword,
   loadSchedule,
   normalizeDays,
   normalizeMembers,
+  parseCookies,
+  verifyPassword,
   saveSchedule,
   nextMonday,
   formatDateKey,
