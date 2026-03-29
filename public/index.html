@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Planning Grangettes</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Prototype de planning</p>
+          <h1>Tableau des permanences Grangettes</h1>
+          <p class="hero-copy">
+            Choisissez votre nom, puis cliquez sur une case libre pour vous inscrire au
+            <strong>matin</strong> ou à <strong>l'après-midi</strong>. Un clic sur votre propre
+            case permet de vous retirer.
+          </p>
+        </div>
+
+        <div class="hero-panel">
+          <label class="control-label" for="member-select">Je suis</label>
+          <select id="member-select"></select>
+          <p id="selection-hint" class="selection-hint"></p>
+          <button id="reset-button" class="secondary-button" type="button">Réinitialiser la démo</button>
+        </div>
+      </header>
+
+      <main class="content-grid">
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Vue rapide</p>
+              <h2>Créneaux encore libres</h2>
+            </div>
+            <p class="panel-copy">Permet de repérer d'un coup d'oeil les créneaux à couvrir.</p>
+          </div>
+          <div id="summary-grid" class="summary-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Paramètres</p>
+              <h2>Membres et dates</h2>
+            </div>
+            <p class="panel-copy">Modifiez la liste des membres et les dates visibles du planning.</p>
+          </div>
+          <div class="settings-grid">
+            <div class="settings-card">
+              <label class="control-label" for="members-editor">Membres</label>
+              <p class="settings-help">Un nom par ligne.</p>
+              <textarea id="members-editor" class="settings-textarea"></textarea>
+              <button id="save-members-button" class="secondary-button" type="button">Enregistrer les membres</button>
+            </div>
+            <div class="settings-card">
+              <label class="control-label" for="days-editor">Dates</label>
+              <p class="settings-help">Une date par ligne au format AAAA-MM-JJ.</p>
+              <textarea id="days-editor" class="settings-textarea"></textarea>
+              <button id="save-days-button" class="secondary-button" type="button">Enregistrer les dates</button>
+            </div>
+          </div>
+          <p id="settings-feedback" class="selection-hint"></p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Vue tableau</p>
+              <h2>Inscriptions par jour</h2>
+            </div>
+            <p class="panel-copy">Une personne par créneau, avec commentaire libre par date.</p>
+          </div>
+          <div class="table-wrap">
+            <table id="availability-table" class="availability-table"></table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="summary-card-template">
+      <article class="summary-card">
+        <div class="summary-date"></div>
+        <div class="summary-slots"></div>
+      </article>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
