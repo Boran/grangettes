@@ -1,4 +1,7 @@
 const memberSelect = document.querySelector("#member-select");
+const memberCodeInput = document.querySelector("#member-code");
+const memberLoginButton = document.querySelector("#member-login-button");
+const memberLogoutButton = document.querySelector("#member-logout-button");
 const pageTitle = document.querySelector("#page-title");
 const selectionHint = document.querySelector("#selection-hint");
 const availabilityTable = document.querySelector("#availability-table");
@@ -10,15 +13,19 @@ const adminPasswordInput = document.querySelector("#admin-password");
 const adminLoginButton = document.querySelector("#admin-login-button");
 const adminLogoutButton = document.querySelector("#admin-logout-button");
 const adminFeedback = document.querySelector("#admin-feedback");
-const membersEditor = document.querySelector("#members-editor");
 const daysEditor = document.querySelector("#days-editor");
-const saveMembersButton = document.querySelector("#save-members-button");
 const saveDaysButton = document.querySelector("#save-days-button");
 const settingsFeedback = document.querySelector("#settings-feedback");
+const membersAdminList = document.querySelector("#members-admin-list");
+const newMemberNameInput = document.querySelector("#new-member-name");
+const addMemberButton = document.querySelector("#add-member-button");
+const memberAdminFeedback = document.querySelector("#member-admin-feedback");
+const memberCodeOutput = document.querySelector("#member-code-output");
+const auditLogList = document.querySelector("#audit-log-list");
 
 const slotLabels = {
   morning: "Matin",
-  afternoon: "Après-midi"
+  afternoon: "Apres-midi"
 };
 
 const weekdayFormatter = new Intl.DateTimeFormat("fr-CH", {
@@ -27,34 +34,42 @@ const weekdayFormatter = new Intl.DateTimeFormat("fr-CH", {
   month: "short"
 });
 
-let schedule = null;
-let selectedMemberId = "";
-let isAdminAuthenticated = false;
-let pollingHandle = null;
-let isApplyingRemoteUpdate = false;
+const dateTimeFormatter = new Intl.DateTimeFormat("fr-CH", {
+  dateStyle: "short",
+  timeStyle: "short"
+});
+
 const POLL_INTERVAL_MS = 5000;
 
-async function loadSchedule() {
-  const [scheduleResponse, sessionResponse] = await Promise.all([
-    fetch("/api/schedule"),
-    fetch("/api/admin/session")
-  ]);
-  schedule = await scheduleResponse.json();
-  const session = await sessionResponse.json();
-  isAdminAuthenticated = Boolean(session.authenticated);
+let schedule = null;
+let adminSession = null;
+let memberSession = null;
+let pollingHandle = null;
 
-  if (!selectedMemberId && schedule.members.length > 0) {
-    selectedMemberId = schedule.members[0].id;
-  }
+async function loadAppState() {
+  const [scheduleResponse, adminSessionResponse, memberSessionResponse] = await Promise.all([
+    fetch("/api/schedule"),
+    fetch("/api/admin/session"),
+    fetch("/api/member/session")
+  ]);
+
+  schedule = await scheduleResponse.json();
+  adminSession = await adminSessionResponse.json();
+  memberSession = await memberSessionResponse.json();
 
   render();
+
+  if (adminSession.authenticated) {
+    await refreshAuditLog();
+  }
 }
 
 function render() {
   renderTitle();
-  renderMemberSelect();
+  renderMemberAuth();
   renderAdminState();
-  renderSettingsEditors();
+  renderDaysEditor();
+  renderMembersAdmin();
   renderTable();
 }
 
@@ -64,35 +79,155 @@ function renderTitle() {
   document.title = title;
 }
 
-function renderMemberSelect() {
+function renderMemberAuth() {
   memberSelect.innerHTML = "";
 
-  schedule.members.forEach((member) => {
-    const option = document.createElement("option");
-    option.value = member.id;
-    option.textContent = member.name;
-    option.selected = member.id === selectedMemberId;
-    memberSelect.append(option);
-  });
+  schedule.members
+    .filter((member) => member.active)
+    .forEach((member) => {
+      const option = document.createElement("option");
+      option.value = member.id;
+      option.textContent = member.name;
+      memberSelect.append(option);
+    });
 
-  const activeMember = schedule.members.find((member) => member.id === selectedMemberId);
-  selectionHint.textContent = activeMember
-    ? `${activeMember.name} peut s'inscrire sur un créneau libre ou se retirer de son propre créneau.`
-    : "Choisissez un membre pour commencer.";
-}
+  const isAuthenticated = Boolean(memberSession?.authenticated);
+  memberSelect.disabled = isAuthenticated;
+  memberCodeInput.disabled = isAuthenticated;
+  memberLoginButton.classList.toggle("is-hidden", isAuthenticated);
+  memberLogoutButton.classList.toggle("is-hidden", !isAuthenticated);
 
-function renderAdminState() {
-  adminEditors.classList.toggle("is-hidden", !isAdminAuthenticated);
-  adminLoginSection.classList.toggle("is-hidden", isAdminAuthenticated);
-}
-
-function renderSettingsEditors() {
-  if (isApplyingRemoteUpdate) {
+  if (isAuthenticated) {
+    selectionHint.textContent = `${memberSession.member.name} est connecte et peut modifier ses propres creneaux.`;
+    memberSelect.value = memberSession.member.id;
     return;
   }
 
-  membersEditor.value = schedule.members.map((member) => member.name).join("\n");
-  daysEditor.value = schedule.days.join("\n");
+  selectionHint.textContent = "Connectez-vous avec votre code d'acces pour modifier vos permanences.";
+}
+
+function renderAdminState() {
+  const isAuthenticated = Boolean(adminSession?.authenticated);
+  adminEditors.classList.toggle("is-hidden", !isAuthenticated);
+  adminLoginSection.classList.toggle("is-hidden", isAuthenticated);
+}
+
+function renderDaysEditor() {
+  if (document.activeElement !== daysEditor) {
+    daysEditor.value = schedule.days.join("\n");
+  }
+}
+
+function renderMembersAdmin() {
+  membersAdminList.innerHTML = "";
+
+  schedule.members.forEach((member) => {
+    const row = document.createElement("div");
+    row.className = "member-admin-row";
+    row.dataset.memberId = member.id;
+
+    const nameInput = document.createElement("input");
+    nameInput.className = "settings-input member-name-input";
+    nameInput.value = member.name;
+    nameInput.dataset.memberId = member.id;
+
+    const status = document.createElement("div");
+    status.className = "member-admin-meta";
+    status.textContent = member.hasAccessCode ? "Code actif" : "Aucun code";
+
+    const activeLabel = document.createElement("label");
+    activeLabel.className = "member-toggle";
+    const activeCheckbox = document.createElement("input");
+    activeCheckbox.type = "checkbox";
+    activeCheckbox.checked = Boolean(member.active);
+    activeCheckbox.dataset.memberId = member.id;
+    activeCheckbox.className = "member-active-checkbox";
+    activeLabel.append(activeCheckbox, document.createTextNode("Actif"));
+
+    const saveButton = document.createElement("button");
+    saveButton.className = "secondary-button";
+    saveButton.type = "button";
+    saveButton.textContent = "Enregistrer";
+    saveButton.dataset.memberId = member.id;
+    saveButton.dataset.action = "save-member";
+
+    const regenerateButton = document.createElement("button");
+    regenerateButton.className = "secondary-button";
+    regenerateButton.type = "button";
+    regenerateButton.textContent = "Regenerer le code";
+    regenerateButton.dataset.memberId = member.id;
+    regenerateButton.dataset.action = "regenerate-code";
+
+    const actions = document.createElement("div");
+    actions.className = "admin-actions";
+    actions.append(saveButton, regenerateButton);
+
+    row.append(nameInput, status, activeLabel, actions);
+    membersAdminList.append(row);
+  });
+}
+
+function showMemberCode(message) {
+  memberCodeOutput.textContent = message;
+  memberCodeOutput.classList.remove("is-hidden");
+}
+
+function clearMemberCode() {
+  memberCodeOutput.textContent = "";
+  memberCodeOutput.classList.add("is-hidden");
+}
+
+function renderAuditLog(items = []) {
+  auditLogList.innerHTML = "";
+
+  if (items.length === 0) {
+    auditLogList.textContent = "Aucune action recente.";
+    return;
+  }
+
+  items.forEach((item) => {
+    const row = document.createElement("article");
+    row.className = "audit-item";
+    row.innerHTML = `
+      <strong>${item.actorLabel}</strong>
+      <span>${describeAuditAction(item)}</span>
+      <span class="status-note">${dateTimeFormatter.format(new Date(item.createdAt))}</span>
+    `;
+    auditLogList.append(row);
+  });
+}
+
+function describeAuditAction(item) {
+  const day = item.details?.day || "";
+
+  switch (item.action) {
+    case "assignment_set":
+      return `a attribue ${item.details.slot} le ${day}`;
+    case "assignment_cleared":
+      return `a libere ${item.details.slot} le ${day}`;
+    case "comment_updated":
+      return `a modifie un commentaire pour le ${day}`;
+    case "member_created":
+      return `a cree le membre ${item.details.name}`;
+    case "member_updated":
+      return `a mis a jour ${item.details.name}`;
+    case "member_code_regenerated":
+      return "a regenere un code d'acces membre";
+    case "days_updated":
+      return "a mis a jour la liste des dates";
+    case "schedule_reset":
+      return "a reinitialise le planning";
+    case "admin_login":
+      return "s'est connecte en admin";
+    case "admin_logout":
+      return "s'est deconnecte de l'admin";
+    case "member_login":
+      return "s'est connecte comme membre";
+    case "member_logout":
+      return "s'est deconnecte";
+    default:
+      return item.action;
+  }
 }
 
 function renderTable() {
@@ -121,6 +256,7 @@ function renderTable() {
   availabilityTable.append(thead);
 
   const tbody = document.createElement("tbody");
+  const currentMemberId = memberSession?.member?.id || null;
 
   schedule.days.forEach((day) => {
     const tr = document.createElement("tr");
@@ -135,23 +271,24 @@ function renderTable() {
       const button = document.createElement("button");
       const ownerId = schedule.assignments?.[day]?.[slot] || null;
       const owner = schedule.members.find((member) => member.id === ownerId);
-      const isOwnedBySelectedMember = ownerId === selectedMemberId;
+      const isOwnedByCurrentMember = ownerId === currentMemberId;
 
       button.type = "button";
       button.className = "slot-button";
       button.dataset.day = day;
       button.dataset.slot = slot;
+      button.disabled = !currentMemberId || (ownerId && !isOwnedByCurrentMember);
 
       if (ownerId) {
         button.classList.add("is-claimed");
       }
 
-      if (isOwnedBySelectedMember) {
+      if (isOwnedByCurrentMember) {
         button.classList.add("is-owned");
       }
 
       button.innerHTML = owner
-        ? `${owner.name}<span class="status-note">${isOwnedBySelectedMember ? "cliquer pour se retirer" : "créneau occupé"}</span>`
+        ? `${owner.name}<span class="status-note">${isOwnedByCurrentMember ? "cliquer pour se retirer" : "creneau occupe"}</span>`
         : '<span class="status-note">Cliquer pour s\'inscrire</span>';
 
       td.append(button);
@@ -165,6 +302,7 @@ function renderTable() {
     input.dataset.day = day;
     input.placeholder = "Ajouter un commentaire pour cette date";
     input.value = schedule.assignments?.[day]?.comment || "";
+    input.disabled = !memberSession?.authenticated && !adminSession?.authenticated;
     commentCell.append(input);
     tr.append(commentCell);
 
@@ -174,78 +312,8 @@ function renderTable() {
   availabilityTable.append(tbody);
 }
 
-async function updateAssignment(memberId, day, slot) {
-  const response = await fetch("/api/availability", {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ memberId, day, slot })
-  });
-
-  schedule = await response.json();
-  render();
-}
-
-async function updateComment(day, comment) {
-  const response = await fetch("/api/comment", {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ day, comment })
-  });
-
-  schedule = await response.json();
-  render();
-}
-
-async function updateMembers(memberNames) {
-  const members = memberNames.map((name, index) => ({
-    id: schedule.members[index]?.id || "",
-    name
-  }));
-
-  const response = await fetch("/api/members", {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ members })
-  });
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload.error || "Impossible d'enregistrer les membres");
-  }
-
-  schedule = payload;
-
-  if (!schedule.members.some((member) => member.id === selectedMemberId)) {
-    selectedMemberId = schedule.members[0]?.id || "";
-  }
-
-  render();
-}
-
-async function updateDays(days) {
-  const response = await fetch("/api/days", {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ days })
-  });
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload.error || "Impossible d'enregistrer les dates");
-  }
-
-  schedule = payload;
-  render();
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function schedulesDiffer(nextSchedule) {
@@ -254,23 +322,11 @@ function schedulesDiffer(nextSchedule) {
 
 function isEditingField() {
   const activeElement = document.activeElement;
-
-  if (!activeElement) {
-    return false;
-  }
-
-  const tagName = activeElement.tagName;
-  if (tagName !== "TEXTAREA" && tagName !== "INPUT") {
-    return false;
-  }
-
-  return true;
+  return Boolean(activeElement && (activeElement.tagName === "TEXTAREA" || activeElement.tagName === "INPUT"));
 }
 
 async function refreshScheduleSilently() {
-  const response = await fetch("/api/schedule", {
-    cache: "no-store"
-  });
+  const response = await fetch("/api/schedule", { cache: "no-store" });
   const nextSchedule = await response.json();
 
   if (!schedule || schedulesDiffer(nextSchedule)) {
@@ -278,15 +334,12 @@ async function refreshScheduleSilently() {
       return;
     }
 
-    isApplyingRemoteUpdate = false;
     schedule = nextSchedule;
-
-    if (!schedule.members.some((member) => member.id === selectedMemberId)) {
-      selectedMemberId = schedule.members[0]?.id || "";
-    }
-
     render();
-    isApplyingRemoteUpdate = false;
+  }
+
+  if (adminSession?.authenticated) {
+    await refreshAuditLog();
   }
 }
 
@@ -300,132 +353,203 @@ function startPolling() {
   }, POLL_INTERVAL_MS);
 }
 
-function capitalize(text) {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-async function checkAdminCredentials(username, password) {
-  const response = await fetch("/api/admin/login", {
+async function postJson(url, body) {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ username, password })
+    body: JSON.stringify(body || {})
   });
-
   const payload = await response.json();
 
   if (!response.ok) {
-    throw new Error(payload.error || "Identifiants administrateur invalides");
+    throw new Error(payload.error || "Erreur");
   }
 
-  isAdminAuthenticated = Boolean(payload.authenticated);
-  render();
+  return payload;
 }
 
-memberSelect.addEventListener("change", (event) => {
-  selectedMemberId = event.target.value;
-  render();
-});
-
-availabilityTable.addEventListener("click", async (event) => {
-  const button = event.target.closest(".slot-button");
-
-  if (!button) {
-    return;
-  }
-
-  const { day, slot } = button.dataset;
-  const ownerId = schedule.assignments?.[day]?.[slot] || null;
-
-  if (ownerId && ownerId !== selectedMemberId) {
-    return;
-  }
-
-  await updateAssignment(selectedMemberId, day, slot);
-});
-
-availabilityTable.addEventListener("change", async (event) => {
-  const input = event.target.closest(".comment-input");
-
-  if (!input) {
-    return;
-  }
-
-  await updateComment(input.dataset.day, input.value);
-});
-
-resetButton.addEventListener("click", async () => {
-  if (!isAdminAuthenticated) {
-    settingsFeedback.textContent = "Connexion administrateur requise pour réinitialiser la démo.";
-    return;
-  }
-
-  const response = await fetch("/api/reset", {
-    method: "POST"
+async function putJson(url, body) {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body || {})
   });
   const payload = await response.json();
 
   if (!response.ok) {
-    settingsFeedback.textContent = payload.error || "Impossible de réinitialiser la démo.";
+    throw new Error(payload.error || "Erreur");
+  }
+
+  return payload;
+}
+
+async function refreshAuditLog() {
+  const response = await fetch("/api/admin/audit");
+
+  if (!response.ok) {
     return;
   }
 
-  schedule = payload;
+  const payload = await response.json();
+  renderAuditLog(payload.items || []);
+}
 
-  if (!schedule.members.some((member) => member.id === selectedMemberId)) {
-    selectedMemberId = schedule.members[0]?.id || "";
+memberLoginButton.addEventListener("click", async () => {
+  try {
+    memberSession = await postJson("/api/member/login", {
+      memberId: memberSelect.value,
+      accessCode: memberCodeInput.value
+    });
+    memberCodeInput.value = "";
+    await loadAppState();
+  } catch (error) {
+    selectionHint.textContent = error.message;
   }
+});
 
-  settingsFeedback.textContent = "Données de démonstration réinitialisées.";
-  render();
+memberLogoutButton.addEventListener("click", async () => {
+  await fetch("/api/member/logout", { method: "POST" }).catch(() => {});
+  memberSession = null;
+  await loadAppState();
 });
 
 adminLoginButton.addEventListener("click", async () => {
   try {
-    await checkAdminCredentials(adminUsernameInput.value.trim(), adminPasswordInput.value);
-    adminFeedback.textContent = "Édition déverrouillée.";
-    settingsFeedback.textContent = "";
+    adminSession = await postJson("/api/admin/login", {
+      username: adminUsernameInput.value.trim(),
+      password: adminPasswordInput.value
+    });
     adminPasswordInput.value = "";
+    adminFeedback.textContent = "Administration deverrouillee.";
+    await loadAppState();
   } catch (error) {
     adminFeedback.textContent = error.message;
   }
 });
 
-adminLogoutButton.addEventListener("click", () => {
-  fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
-  isAdminAuthenticated = false;
-  adminPasswordInput.value = "";
-  adminFeedback.textContent = "Accès administrateur verrouillé.";
-  settingsFeedback.textContent = "";
-  render();
+adminLogoutButton.addEventListener("click", async () => {
+  await fetch("/api/admin/logout", { method: "POST" }).catch(() => {});
+  adminSession = null;
+  adminFeedback.textContent = "Administration verrouillee.";
+  await loadAppState();
 });
 
-saveMembersButton.addEventListener("click", async () => {
-  const members = membersEditor.value
-    .split("\n")
-    .map((value) => value.trim())
-    .filter(Boolean);
+availabilityTable.addEventListener("click", async (event) => {
+  const button = event.target.closest(".slot-button");
+  if (!button || !memberSession?.authenticated) {
+    return;
+  }
 
   try {
-    await updateMembers(members);
-    settingsFeedback.textContent = "Liste des membres enregistrée.";
+    schedule = await putJson("/api/availability", {
+      memberId: memberSession.member.id,
+      day: button.dataset.day,
+      slot: button.dataset.slot
+    });
+    render();
+  } catch (error) {
+    selectionHint.textContent = error.message;
+  }
+});
+
+availabilityTable.addEventListener("change", async (event) => {
+  const input = event.target.closest(".comment-input");
+  if (!input) {
+    return;
+  }
+
+  try {
+    schedule = await putJson("/api/comment", {
+      day: input.dataset.day,
+      comment: input.value
+    });
+    render();
+  } catch (error) {
+    selectionHint.textContent = error.message;
+  }
+});
+
+saveDaysButton.addEventListener("click", async () => {
+  try {
+    schedule = await putJson("/api/days", {
+      days: daysEditor.value
+        .split("\n")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    });
+    settingsFeedback.textContent = "Dates enregistrees.";
+    render();
   } catch (error) {
     settingsFeedback.textContent = error.message;
   }
 });
 
-saveDaysButton.addEventListener("click", async () => {
-  const days = daysEditor.value
-    .split("\n")
-    .map((value) => value.trim())
-    .filter(Boolean);
-
+resetButton.addEventListener("click", async () => {
   try {
-    await updateDays(days);
-    settingsFeedback.textContent = "Liste des dates enregistrée.";
+    schedule = await postJson("/api/reset");
+    settingsFeedback.textContent = "Planning reinitialise depuis le seed.";
+    render();
+    await refreshAuditLog();
   } catch (error) {
     settingsFeedback.textContent = error.message;
+  }
+});
+
+addMemberButton.addEventListener("click", async () => {
+  try {
+    const payload = await postJson("/api/admin/members", {
+      name: newMemberNameInput.value
+    });
+    schedule = payload.schedule;
+    newMemberNameInput.value = "";
+    memberAdminFeedback.textContent = "Membre cree.";
+    showMemberCode(`Code d'acces pour ${payload.member.name}: ${payload.accessCode}`);
+    render();
+    await refreshAuditLog();
+  } catch (error) {
+    clearMemberCode();
+    memberAdminFeedback.textContent = error.message;
+  }
+});
+
+membersAdminList.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) {
+    return;
+  }
+
+  const memberId = button.dataset.memberId;
+  const row = button.closest(".member-admin-row");
+  const nameInput = row.querySelector(".member-name-input");
+  const activeCheckbox = row.querySelector(".member-active-checkbox");
+
+  try {
+    if (button.dataset.action === "save-member") {
+      const payload = await putJson(`/api/admin/members/${encodeURIComponent(memberId)}`, {
+        name: nameInput.value,
+        active: activeCheckbox.checked
+      });
+      schedule = payload.schedule;
+      memberAdminFeedback.textContent = "Membre enregistre.";
+      clearMemberCode();
+    }
+
+    if (button.dataset.action === "regenerate-code") {
+      const payload = await postJson(`/api/admin/members/${encodeURIComponent(memberId)}/regenerate-code`);
+      schedule = payload.schedule;
+      memberAdminFeedback.textContent = "Code membre regenere.";
+      showMemberCode(`Nouveau code d'acces: ${payload.accessCode}`);
+    }
+
+    render();
+    await refreshAuditLog();
+  } catch (error) {
+    clearMemberCode();
+    memberAdminFeedback.textContent = error.message;
   }
 });
 
@@ -435,7 +559,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-loadSchedule().catch((error) => {
+loadAppState().catch((error) => {
   selectionHint.textContent = `Impossible de charger le planning : ${error.message}`;
 });
 

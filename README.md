@@ -6,7 +6,10 @@ Prototype léger sur une seule page pour gérer les inscriptions aux permanences
 
 - Affiche un tableau partagé de type feuille de calcul
 - Permet de choisir un membre puis de l'inscrire ou de le retirer d'un créneau `Matin` / `Après-midi`
+- Permet a chaque membre de se connecter avec son code d'acces personnel
+- Limite l'edition des creneaux a la personne connectee
 - Permet de modifier la liste des membres et les dates depuis une zone d'administration protégée
+- Ajoute un journal d'audit des changements cote administration
 - Ajoute une colonne de commentaires libres par date
 - Utilise une session administrateur par cookie HTTP et un mot de passe haché
 - Recharge automatiquement le planning toutes les quelques secondes

@@ -10,20 +10,27 @@
     <div class="page-shell">
       <header class="hero">
         <div>
-          <p class="eyebrow">Prototype de planning</p>
+          <p class="eyebrow">Planning du club</p>
           <h1 id="page-title">Tableau des permanences Grangettes</h1>
           <p class="hero-copy">
-            Choisissez votre nom, puis cliquez sur une case libre pour vous inscrire au
-            <strong>matin</strong> ou à <strong>l'après-midi</strong>. Un clic sur votre propre
-            case permet de vous retirer.
+            Chaque membre se connecte avec son code d'acces personnel et ne peut modifier
+            que ses propres permanences. L'administration gere les membres, les dates et
+            le suivi des changements.
           </p>
         </div>
 
         <div class="hero-panel">
-          <label class="control-label" for="member-select">Je suis</label>
-          <select id="member-select"></select>
+          <div id="member-login-card">
+            <label class="control-label" for="member-select">Membre</label>
+            <select id="member-select"></select>
+            <label class="control-label" for="member-code">Code d'acces</label>
+            <input id="member-code" class="settings-input" type="password" autocomplete="one-time-code" />
+            <div class="admin-actions">
+              <button id="member-login-button" class="secondary-button" type="button">Se connecter</button>
+              <button id="member-logout-button" class="secondary-button is-hidden" type="button">Se deconnecter</button>
+            </div>
+          </div>
           <p id="selection-hint" class="selection-hint"></p>
-          <button id="reset-button" class="secondary-button" type="button">Réinitialiser la démo</button>
         </div>
       </header>
 
@@ -34,7 +41,7 @@
               <p class="eyebrow">Vue tableau</p>
               <h2>Inscriptions par jour</h2>
             </div>
-            <p class="panel-copy">Une personne par créneau, avec commentaire libre par date.</p>
+            <p class="panel-copy">Une personne par creneau, avec commentaire libre par date.</p>
           </div>
           <div class="table-wrap">
             <table id="availability-table" class="availability-table"></table>
@@ -45,9 +52,9 @@
           <div class="panel-heading">
             <div>
               <p class="eyebrow">Administration</p>
-              <h2>Modifier membres et dates</h2>
+              <h2>Membres, dates et historique</h2>
             </div>
-            <p class="panel-copy">Accès réservé à l'administration du club.</p>
+            <p class="panel-copy">Acces reserve a l'administration du club.</p>
           </div>
 
           <div id="admin-login" class="settings-card">
@@ -56,27 +63,50 @@
             <label class="control-label" for="admin-password">Mot de passe admin</label>
             <input id="admin-password" class="settings-input" type="password" autocomplete="current-password" />
             <div class="admin-actions">
-              <button id="admin-login-button" class="secondary-button" type="button">Déverrouiller l'édition</button>
+              <button id="admin-login-button" class="secondary-button" type="button">Deverrouiller l'administration</button>
               <button id="admin-logout-button" class="secondary-button" type="button">Verrouiller</button>
             </div>
             <p id="admin-feedback" class="selection-hint"></p>
           </div>
 
-          <div id="admin-editors" class="settings-grid is-hidden">
-            <div class="settings-card">
-              <label class="control-label" for="members-editor">Membres</label>
-              <p class="settings-help">Un nom par ligne.</p>
-              <textarea id="members-editor" class="settings-textarea"></textarea>
-              <button id="save-members-button" class="secondary-button" type="button">Enregistrer les membres</button>
+          <div id="admin-editors" class="settings-stack is-hidden">
+            <div class="settings-grid">
+              <div class="settings-card">
+                <div class="panel-heading compact">
+                  <div>
+                    <p class="eyebrow">Membres</p>
+                    <h2>Comptes membres</h2>
+                  </div>
+                </div>
+              <div class="member-add-row">
+                <input id="new-member-name" class="settings-input" type="text" placeholder="Ajouter un nouveau membre" />
+                <button id="add-member-button" class="secondary-button" type="button">Ajouter</button>
+              </div>
+              <div id="member-code-output" class="code-output is-hidden"></div>
+              <div id="members-admin-list" class="members-admin-list"></div>
+              <p id="member-admin-feedback" class="selection-hint"></p>
             </div>
+
+              <div class="settings-card">
+                <label class="control-label" for="days-editor">Dates</label>
+                <p class="settings-help">Une date par ligne au format AAAA-MM-JJ.</p>
+                <textarea id="days-editor" class="settings-textarea"></textarea>
+                <button id="save-days-button" class="secondary-button" type="button">Enregistrer les dates</button>
+                <button id="reset-button" class="secondary-button" type="button">Reinitialiser depuis le seed</button>
+                <p id="settings-feedback" class="selection-hint"></p>
+              </div>
+            </div>
+
             <div class="settings-card">
-              <label class="control-label" for="days-editor">Dates</label>
-              <p class="settings-help">Une date par ligne au format AAAA-MM-JJ.</p>
-              <textarea id="days-editor" class="settings-textarea"></textarea>
-              <button id="save-days-button" class="secondary-button" type="button">Enregistrer les dates</button>
+              <div class="panel-heading compact">
+                <div>
+                  <p class="eyebrow">Audit</p>
+                  <h2>Journal des actions</h2>
+                </div>
+              </div>
+              <div id="audit-log-list" class="audit-log-list"></div>
             </div>
           </div>
-          <p id="settings-feedback" class="selection-hint"></p>
         </section>
       </main>
     </div>
