@@ -468,6 +468,22 @@ function loadConfig() {
   };
 }
 
+function updateTitle(title) {
+  const nextTitle = String(title || "").trim();
+
+  if (!nextTitle) {
+    throw new Error("Titre invalide");
+  }
+
+  getDb()
+    .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)")
+    .run("title", nextTitle);
+
+  logAudit("admin", ADMIN_USERNAME, "title_updated", {
+    title: nextTitle
+  });
+}
+
 function loadSchedule() {
   const database = getDb();
   const members = database
@@ -712,6 +728,18 @@ function updateAssignment(actor, requestedMemberId, day, slot) {
 }
 
 function updateComment(actor, day, comment) {
+  if (actor.role === "member") {
+    const assignment = getDb()
+      .prepare(
+        "SELECT 1 FROM assignments WHERE day = ? AND member_id = ? LIMIT 1"
+      )
+      .get(day, actor.session.memberId);
+
+    if (!assignment) {
+      throw new Error("Seul un membre assigne ce jour-la peut modifier le commentaire");
+    }
+  }
+
   const result = getDb()
     .prepare("UPDATE days SET comment = ? WHERE day = ?")
     .run(String(comment || "").slice(0, 280), day);
@@ -1147,6 +1175,26 @@ async function handleApi(request, response, pathname) {
     sendJson(response, 200, {
       items: loadAuditLog(150)
     });
+    return true;
+  }
+
+  if (request.method === "PUT" && pathname === "/api/admin/title") {
+    const adminSession = requireAdmin(request, response);
+    if (!adminSession) {
+      return true;
+    }
+
+    const raw = await readRequestBody(request);
+    const payload = JSON.parse(raw || "{}");
+
+    try {
+      updateTitle(payload.title);
+      sendJson(response, 200, {
+        config: loadConfig()
+      });
+    } catch (error) {
+      sendJson(response, 400, { error: error.message || "Impossible de mettre a jour le titre" });
+    }
     return true;
   }
 

@@ -78,14 +78,15 @@
                     <h2>Comptes membres</h2>
                   </div>
                 </div>
-              <div class="member-add-row">
-                <input id="new-member-name" class="settings-input" type="text" placeholder="Ajouter un nouveau membre" />
-                <button id="add-member-button" class="secondary-button" type="button">Ajouter</button>
+                <div class="member-add-row">
+                  <input id="new-member-name" class="settings-input" type="text" placeholder="Ajouter un nouveau membre" />
+                  <button id="add-member-button" class="secondary-button" type="button">Ajouter</button>
+                </div>
+                <input id="member-search" class="settings-input" type="text" placeholder="Rechercher un membre" />
+                <div id="member-code-output" class="code-output is-hidden"></div>
+                <div id="members-admin-list" class="members-admin-list"></div>
+                <p id="member-admin-feedback" class="selection-hint"></p>
               </div>
-              <div id="member-code-output" class="code-output is-hidden"></div>
-              <div id="members-admin-list" class="members-admin-list"></div>
-              <p id="member-admin-feedback" class="selection-hint"></p>
-            </div>
 
               <div class="settings-card">
                 <label class="control-label" for="days-editor">Dates</label>
@@ -93,6 +94,12 @@
                 <textarea id="days-editor" class="settings-textarea"></textarea>
                 <button id="save-days-button" class="secondary-button" type="button">Enregistrer les dates</button>
                 <button id="reset-button" class="secondary-button" type="button">Reinitialiser depuis le seed</button>
+                <div class="title-editor-block">
+                  <label class="control-label" for="title-editor">Titre du tableau</label>
+                  <input id="title-editor" class="settings-input" type="text" />
+                  <button id="save-title-button" class="secondary-button" type="button">Enregistrer le titre</button>
+                  <p id="title-feedback" class="selection-hint"></p>
+                </div>
                 <p id="settings-feedback" class="selection-hint"></p>
               </div>
             </div>
@@ -103,6 +110,14 @@
                   <p class="eyebrow">Audit</p>
                   <h2>Journal des actions</h2>
                 </div>
+              </div>
+              <div class="audit-toolbar">
+                <input id="audit-search" class="settings-input" type="text" placeholder="Rechercher dans le journal" />
+                <select id="audit-filter" class="settings-input">
+                  <option value="all">Toutes les actions</option>
+                  <option value="admin">Actions admin</option>
+                  <option value="member">Actions membres</option>
+                </select>
               </div>
               <div id="audit-log-list" class="audit-log-list"></div>
             </div>

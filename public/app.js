@@ -13,15 +13,21 @@ const adminPasswordInput = document.querySelector("#admin-password");
 const adminLoginButton = document.querySelector("#admin-login-button");
 const adminLogoutButton = document.querySelector("#admin-logout-button");
 const adminFeedback = document.querySelector("#admin-feedback");
+const titleEditor = document.querySelector("#title-editor");
+const saveTitleButton = document.querySelector("#save-title-button");
+const titleFeedback = document.querySelector("#title-feedback");
 const daysEditor = document.querySelector("#days-editor");
 const saveDaysButton = document.querySelector("#save-days-button");
 const settingsFeedback = document.querySelector("#settings-feedback");
 const membersAdminList = document.querySelector("#members-admin-list");
 const newMemberNameInput = document.querySelector("#new-member-name");
 const addMemberButton = document.querySelector("#add-member-button");
+const memberSearchInput = document.querySelector("#member-search");
 const memberAdminFeedback = document.querySelector("#member-admin-feedback");
 const memberCodeOutput = document.querySelector("#member-code-output");
 const auditLogList = document.querySelector("#audit-log-list");
+const auditSearchInput = document.querySelector("#audit-search");
+const auditFilterSelect = document.querySelector("#audit-filter");
 
 const slotLabels = {
   morning: "Matin",
@@ -45,6 +51,7 @@ let schedule = null;
 let adminSession = null;
 let memberSession = null;
 let pollingHandle = null;
+let auditItems = [];
 
 async function loadAppState() {
   const [scheduleResponse, adminSessionResponse, memberSessionResponse] = await Promise.all([
@@ -68,6 +75,7 @@ function render() {
   renderTitle();
   renderMemberAuth();
   renderAdminState();
+  renderTitleEditor();
   renderDaysEditor();
   renderMembersAdmin();
   renderTable();
@@ -112,6 +120,12 @@ function renderAdminState() {
   adminLoginSection.classList.toggle("is-hidden", isAuthenticated);
 }
 
+function renderTitleEditor() {
+  if (document.activeElement !== titleEditor) {
+    titleEditor.value = schedule?.config?.title || "";
+  }
+}
+
 function renderDaysEditor() {
   if (document.activeElement !== daysEditor) {
     daysEditor.value = schedule.days.join("\n");
@@ -120,8 +134,17 @@ function renderDaysEditor() {
 
 function renderMembersAdmin() {
   membersAdminList.innerHTML = "";
+  const searchTerm = memberSearchInput.value.trim().toLowerCase();
 
-  schedule.members.forEach((member) => {
+  schedule.members
+    .filter((member) => {
+      if (!searchTerm) {
+        return true;
+      }
+
+      return `${member.name} ${member.id}`.toLowerCase().includes(searchTerm);
+    })
+    .forEach((member) => {
     const row = document.createElement("div");
     row.className = "member-admin-row";
     row.dataset.memberId = member.id;
@@ -158,17 +181,40 @@ function renderMembersAdmin() {
     regenerateButton.dataset.memberId = member.id;
     regenerateButton.dataset.action = "regenerate-code";
 
+    const statusRow = document.createElement("div");
+    statusRow.className = "member-status-row";
+    statusRow.append(status, regenerateButton);
+
     const actions = document.createElement("div");
     actions.className = "admin-actions";
-    actions.append(saveButton, regenerateButton);
+    actions.append(saveButton);
 
-    row.append(nameInput, status, activeLabel, actions);
+    row.append(nameInput, statusRow, activeLabel, actions);
     membersAdminList.append(row);
-  });
+    });
 }
 
 function showMemberCode(message) {
-  memberCodeOutput.textContent = message;
+  memberCodeOutput.innerHTML = "";
+  const text = document.createElement("div");
+  text.textContent = message;
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "secondary-button";
+  copyButton.textContent = "Copier";
+  copyButton.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(message);
+      memberAdminFeedback.textContent = "Code copie dans le presse-papiers.";
+    } catch (_error) {
+      memberAdminFeedback.textContent = "Impossible de copier automatiquement le code.";
+    }
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "code-output-actions";
+  actions.append(text, copyButton);
+  memberCodeOutput.append(actions);
   memberCodeOutput.classList.remove("is-hidden");
 }
 
@@ -177,15 +223,25 @@ function clearMemberCode() {
   memberCodeOutput.classList.add("is-hidden");
 }
 
-function renderAuditLog(items = []) {
+function renderAuditLog(items = auditItems) {
   auditLogList.innerHTML = "";
+  auditItems = items;
 
-  if (items.length === 0) {
+  const searchTerm = auditSearchInput.value.trim().toLowerCase();
+  const filter = auditFilterSelect.value;
+  const filteredItems = items.filter((item) => {
+    const matchesRole = filter === "all" || item.actorType === filter;
+    const haystack = `${item.actorLabel} ${item.action} ${JSON.stringify(item.details)}`.toLowerCase();
+    const matchesSearch = !searchTerm || haystack.includes(searchTerm);
+    return matchesRole && matchesSearch;
+  });
+
+  if (filteredItems.length === 0) {
     auditLogList.textContent = "Aucune action recente.";
     return;
   }
 
-  items.forEach((item) => {
+  filteredItems.forEach((item) => {
     const row = document.createElement("article");
     row.className = "audit-item";
     row.innerHTML = `
@@ -225,6 +281,8 @@ function describeAuditAction(item) {
       return "s'est connecte comme membre";
     case "member_logout":
       return "s'est deconnecte";
+    case "title_updated":
+      return `a modifie le titre en "${item.details.title}"`;
     default:
       return item.action;
   }
@@ -302,7 +360,14 @@ function renderTable() {
     input.dataset.day = day;
     input.placeholder = "Ajouter un commentaire pour cette date";
     input.value = schedule.assignments?.[day]?.comment || "";
-    input.disabled = !memberSession?.authenticated && !adminSession?.authenticated;
+    const canEditComment =
+      Boolean(adminSession?.authenticated) ||
+      Boolean(
+        memberSession?.authenticated &&
+          (schedule.assignments?.[day]?.morning === memberSession.member.id ||
+            schedule.assignments?.[day]?.afternoon === memberSession.member.id)
+      );
+    input.disabled = !canEditComment;
     commentCell.append(input);
     tr.append(commentCell);
 
@@ -395,7 +460,8 @@ async function refreshAuditLog() {
   }
 
   const payload = await response.json();
-  renderAuditLog(payload.items || []);
+  auditItems = payload.items || [];
+  renderAuditLog();
 }
 
 memberLoginButton.addEventListener("click", async () => {
@@ -488,6 +554,20 @@ saveDaysButton.addEventListener("click", async () => {
   }
 });
 
+saveTitleButton.addEventListener("click", async () => {
+  try {
+    const payload = await putJson("/api/admin/title", {
+      title: titleEditor.value
+    });
+    schedule.config = payload.config;
+    titleFeedback.textContent = "Titre enregistre.";
+    render();
+    await refreshAuditLog();
+  } catch (error) {
+    titleFeedback.textContent = error.message;
+  }
+});
+
 resetButton.addEventListener("click", async () => {
   try {
     schedule = await postJson("/api/reset");
@@ -551,6 +631,18 @@ membersAdminList.addEventListener("click", async (event) => {
     clearMemberCode();
     memberAdminFeedback.textContent = error.message;
   }
+});
+
+auditSearchInput.addEventListener("input", () => {
+  renderAuditLog();
+});
+
+auditFilterSelect.addEventListener("change", () => {
+  renderAuditLog();
+});
+
+memberSearchInput.addEventListener("input", () => {
+  renderMembersAdmin();
 });
 
 document.addEventListener("visibilitychange", () => {

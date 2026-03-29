@@ -213,10 +213,24 @@ textarea {
   font-weight: 700;
 }
 
+.code-output-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
 .members-admin-list,
 .audit-log-list {
   display: grid;
   gap: 12px;
+}
+
+.members-admin-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .audit-log-list {
@@ -234,9 +248,16 @@ textarea {
 }
 
 .member-admin-meta {
-  margin-bottom: 10px;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.member-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
 .member-toggle {
@@ -249,6 +270,19 @@ textarea {
 
 .member-name-input {
   margin-bottom: 10px;
+}
+
+.title-editor-block {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.audit-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .table-wrap {
@@ -388,5 +422,9 @@ textarea {
 
   .slot-header {
     min-width: 104px;
+  }
+
+  .audit-toolbar {
+    grid-template-columns: 1fr;
   }
 }
