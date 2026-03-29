@@ -20,6 +20,25 @@ npm start
 
 Puis ouvrez [http://localhost:3000](http://localhost:3000).
 
+## Déploiement VPS
+
+Pour un hébergement Node.js comme alwaysdata :
+
+```bash
+Commande : node server.js
+```
+
+Variables d'environnement recommandées :
+
+```bash
+NODEJS_VERSION=20
+HOST=::
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD_HASH='scrypt$...'
+```
+
+Un endpoint de vérification simple est disponible sur `/health`.
+
 ## Administration
 
 Par défaut, l'administration utilise :
@@ -70,3 +89,5 @@ Pour l'instant :
 - `data/schedule.local.json` reçoit les vraies modifications à l'exécution
 
 Ce choix est bien adapté à un petit prototype sur VPS. Si le projet devient plus important, SQLite sera probablement la meilleure étape suivante.
+
+Au démarrage, si `data/schedule.local.json` est absent ou invalide, il est automatiquement recréé à partir de `data/schedule.json`.

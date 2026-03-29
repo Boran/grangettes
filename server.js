@@ -5,7 +5,7 @@ const path = require("path");
 const { URL } = require("url");
 
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || "127.0.0.1";
+const HOST = process.env.HOST || process.env.IP || "::";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const DEFAULT_ADMIN_PASSWORD_HASH =
   "scrypt$4e4856adb4313849db418589202ff8be$c480266124b794927c767d57931a184bd798fbbdf142b4b87e82cc6a3f397775bb37f2a9209e3953c67edda5f1ce0724b2142298e55a31b2face0e2dea9be2c3";
@@ -19,21 +19,40 @@ const RUNTIME_DATA_FILE = path.join(DATA_DIR, "schedule.local.json");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 const sessions = new Map();
 
+function safeReadJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function writeJson(filePath, value) {
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
+}
+
+function ensureRuntimeScheduleFile() {
+  if (!fs.existsSync(RUNTIME_DATA_FILE)) {
+    fs.copyFileSync(SEED_DATA_FILE, RUNTIME_DATA_FILE);
+    return;
+  }
+
+  try {
+    safeReadJson(RUNTIME_DATA_FILE);
+  } catch (_error) {
+    fs.copyFileSync(SEED_DATA_FILE, RUNTIME_DATA_FILE);
+  }
+}
+
 function ensureDataFile() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
   if (!fs.existsSync(SEED_DATA_FILE)) {
     const seed = createSeedData();
-    fs.writeFileSync(SEED_DATA_FILE, JSON.stringify(seed, null, 2));
+    writeJson(SEED_DATA_FILE, seed);
   }
 
-  if (!fs.existsSync(RUNTIME_DATA_FILE)) {
-    fs.copyFileSync(SEED_DATA_FILE, RUNTIME_DATA_FILE);
-  }
+  ensureRuntimeScheduleFile();
 
   if (!fs.existsSync(CONFIG_FILE)) {
     const config = createDefaultConfig();
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    writeJson(CONFIG_FILE, config);
   }
 }
 
@@ -322,15 +341,24 @@ function requireAdmin(request, response) {
 }
 
 function loadSchedule() {
-  return JSON.parse(fs.readFileSync(RUNTIME_DATA_FILE, "utf8"));
+  return safeReadJson(RUNTIME_DATA_FILE);
 }
 
 function saveSchedule(schedule) {
-  fs.writeFileSync(RUNTIME_DATA_FILE, JSON.stringify(schedule, null, 2));
+  writeJson(RUNTIME_DATA_FILE, schedule);
 }
 
 function loadConfig() {
-  return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+  try {
+    return {
+      ...createDefaultConfig(),
+      ...safeReadJson(CONFIG_FILE)
+    };
+  } catch (_error) {
+    const fallback = createDefaultConfig();
+    writeJson(CONFIG_FILE, fallback);
+    return fallback;
+  }
 }
 
 function getContentType(filePath) {
@@ -398,6 +426,18 @@ function readRequestBody(request) {
 }
 
 async function handleApi(request, response, pathname) {
+  if (request.method === "GET" && pathname === "/health") {
+    sendJson(response, 200, {
+      ok: true,
+      status: "ok",
+      host: HOST,
+      port: PORT,
+      runtimeDataFile: RUNTIME_DATA_FILE,
+      seedDataFile: SEED_DATA_FILE
+    });
+    return true;
+  }
+
   if (request.method === "GET" && pathname === "/api/schedule") {
     sendJson(response, 200, {
       ...loadSchedule(),
