@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "One-page prototype for Grangettes member availability",
+  "dependencies": {
+    "better-sqlite3": "^11.10.0"
+  },
   "scripts": {
     "start": "node server.js",
     "hash-password": "node scripts/hash-password.js"

@@ -10,11 +10,12 @@ Prototype léger sur une seule page pour gérer les inscriptions aux permanences
 - Ajoute une colonne de commentaires libres par date
 - Utilise une session administrateur par cookie HTTP et un mot de passe haché
 - Recharge automatiquement le planning toutes les quelques secondes
-- Stocke l'état partagé dans un fichier JSON local
+- Stocke l'etat partage dans une base SQLite locale
 
 ## Lancement local
 
 ```bash
+npm install
 npm start
 ```
 
@@ -38,6 +39,8 @@ ADMIN_PASSWORD_HASH='scrypt$...'
 ```
 
 Un endpoint de vérification simple est disponible sur `/health`.
+
+Cette version utilise `better-sqlite3`, donc un `npm install` est necessaire sur la machine de deploiement.
 
 ## Administration
 
@@ -78,16 +81,17 @@ Note importante : cette conservation se fait par position dans la liste d'admini
 - `server.js` : petit serveur HTTP et API JSON
 - `public/` : interface web en une page
 - `data/config.json` : configuration simple, dont le titre du tableau
-- `data/schedule.json` : planning seed/de démonstration conservé dans git
-- `data/schedule.local.json` : planning runtime local, créé automatiquement et ignoré par git
+- `data/schedule.json` : planning seed/de demonstration conserve dans git
+- `data/grangettes.sqlite` : base SQLite runtime creee automatiquement et ignoree par git
 
 ## Persistance des données
 
 Pour l'instant :
 
-- `data/schedule.json` sert de base propre à versionner
-- `data/schedule.local.json` reçoit les vraies modifications à l'exécution
+- `data/schedule.json` sert de base propre a versionner
+- `data/config.json` contient le titre versionne
+- `data/grangettes.sqlite` recoit les vraies modifications a l'execution
 
-Ce choix est bien adapté à un petit prototype sur VPS. Si le projet devient plus important, SQLite sera probablement la meilleure étape suivante.
+Au premier demarrage, la base SQLite est initialisee depuis les fichiers JSON existants. Si `data/schedule.local.json` existe encore, il sert de source de migration unique avant que SQLite devienne le stockage principal.
 
-Au démarrage, si `data/schedule.local.json` est absent ou invalide, il est automatiquement recréé à partir de `data/schedule.json`.
+Ce choix est bien adapte a un petit prototype sur VPS et prepare mieux les prochaines etapes comme l'authentification membre et le journal d'audit.

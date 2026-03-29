@@ -2,6 +2,7 @@ const http = require("http");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const Database = require("better-sqlite3");
 const { URL } = require("url");
 
 const PORT = process.env.PORT || 3000;
@@ -12,12 +13,15 @@ const DEFAULT_ADMIN_PASSWORD_HASH =
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || DEFAULT_ADMIN_PASSWORD_HASH;
 const SESSION_COOKIE_NAME = "grangettes_admin_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const SLOT_KEYS = ["morning", "afternoon"];
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const SEED_DATA_FILE = path.join(DATA_DIR, "schedule.json");
-const RUNTIME_DATA_FILE = path.join(DATA_DIR, "schedule.local.json");
+const LEGACY_RUNTIME_DATA_FILE = path.join(DATA_DIR, "schedule.local.json");
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
-const sessions = new Map();
+const DB_FILE = path.join(DATA_DIR, "grangettes.sqlite");
+
+let db = null;
 
 function safeReadJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -25,35 +29,6 @@ function safeReadJson(filePath) {
 
 function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
-}
-
-function ensureRuntimeScheduleFile() {
-  if (!fs.existsSync(RUNTIME_DATA_FILE)) {
-    fs.copyFileSync(SEED_DATA_FILE, RUNTIME_DATA_FILE);
-    return;
-  }
-
-  try {
-    safeReadJson(RUNTIME_DATA_FILE);
-  } catch (_error) {
-    fs.copyFileSync(SEED_DATA_FILE, RUNTIME_DATA_FILE);
-  }
-}
-
-function ensureDataFile() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-
-  if (!fs.existsSync(SEED_DATA_FILE)) {
-    const seed = createSeedData();
-    writeJson(SEED_DATA_FILE, seed);
-  }
-
-  ensureRuntimeScheduleFile();
-
-  if (!fs.existsSync(CONFIG_FILE)) {
-    const config = createDefaultConfig();
-    writeJson(CONFIG_FILE, config);
-  }
 }
 
 function createSeedData() {
@@ -84,7 +59,7 @@ function createSeedData() {
 
   return {
     clubName: "Club des Grangettes",
-    slots: ["morning", "afternoon"],
+    slots: SLOT_KEYS,
     members,
     days,
     assignments
@@ -95,6 +70,32 @@ function createDefaultConfig() {
   return {
     title: "Tableau des permanences Grangettes"
   };
+}
+
+function ensureSeedFiles() {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+
+  if (!fs.existsSync(SEED_DATA_FILE)) {
+    writeJson(SEED_DATA_FILE, createSeedData());
+  }
+
+  if (!fs.existsSync(CONFIG_FILE)) {
+    writeJson(CONFIG_FILE, createDefaultConfig());
+  }
+}
+
+function loadLegacyScheduleSource() {
+  const candidateFiles = [LEGACY_RUNTIME_DATA_FILE, SEED_DATA_FILE];
+
+  for (const filePath of candidateFiles) {
+    try {
+      return safeReadJson(filePath);
+    } catch (_error) {
+      // Try the next candidate.
+    }
+  }
+
+  return createSeedData();
 }
 
 function nextMonday(date) {
@@ -202,21 +203,6 @@ function ensureAssignmentsForDays(days, existingAssignments = {}) {
   return nextAssignments;
 }
 
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store"
-  });
-  response.end(JSON.stringify(payload));
-}
-
-function sendText(response, statusCode, text) {
-  response.writeHead(statusCode, {
-    "Content-Type": "text/plain; charset=utf-8"
-  });
-  response.end(text);
-}
-
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64);
 }
@@ -273,43 +259,348 @@ function appendSetCookie(response, value) {
   response.setHeader("Set-Cookie", [existing, value]);
 }
 
-function createSession(username) {
-  const token = crypto.randomBytes(24).toString("hex");
-  sessions.set(token, {
-    username,
-    expiresAt: Date.now() + SESSION_TTL_MS
+function getDb() {
+  if (db) {
+    return db;
+  }
+
+  ensureSeedFiles();
+  db = new Database(DB_FILE);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  initializeDatabase(db);
+  return db;
+}
+
+function initializeDatabase(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS members (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS days (
+      day TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL,
+      comment TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS assignments (
+      day TEXT NOT NULL,
+      slot TEXT NOT NULL,
+      member_id TEXT,
+      PRIMARY KEY (day, slot),
+      FOREIGN KEY (day) REFERENCES days(day) ON DELETE CASCADE,
+      FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      token TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+  `);
+
+  const alreadyInitialized = database.prepare("SELECT value FROM app_meta WHERE key = ?").get("schema_version");
+  if (alreadyInitialized) {
+    return;
+  }
+
+  importLegacyData(database);
+  database
+    .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)")
+    .run("schema_version", "1");
+}
+
+function importLegacyData(database) {
+  const config = loadLegacyConfig();
+  const schedule = loadLegacyScheduleSource();
+  const assignments = ensureAssignmentsForDays(schedule.days || [], schedule.assignments || {});
+
+  const transaction = database.transaction(() => {
+    database.exec(`
+      DELETE FROM assignments;
+      DELETE FROM days;
+      DELETE FROM members;
+      DELETE FROM app_meta WHERE key != 'schema_version';
+      DELETE FROM admin_sessions;
+    `);
+
+    database
+      .prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES (?, ?)")
+      .run("title", String(config.title || createDefaultConfig().title));
+
+    const insertMember = database.prepare(
+      "INSERT INTO members (id, name, sort_order) VALUES (?, ?, ?)"
+    );
+    (schedule.members || []).forEach((member, index) => {
+      insertMember.run(member.id, member.name, index);
+    });
+
+    const insertDay = database.prepare(
+      "INSERT INTO days (day, sort_order, comment) VALUES (?, ?, ?)"
+    );
+    const insertAssignment = database.prepare(
+      "INSERT INTO assignments (day, slot, member_id) VALUES (?, ?, ?)"
+    );
+
+    (schedule.days || []).forEach((day, index) => {
+      const current = assignments[day] || { morning: null, afternoon: null, comment: "" };
+      insertDay.run(day, index, current.comment || "");
+
+      SLOT_KEYS.forEach((slot) => {
+        insertAssignment.run(day, slot, current[slot] || null);
+      });
+    });
   });
-  return token;
+
+  transaction();
+}
+
+function loadLegacyConfig() {
+  try {
+    return {
+      ...createDefaultConfig(),
+      ...safeReadJson(CONFIG_FILE)
+    };
+  } catch (_error) {
+    return createDefaultConfig();
+  }
+}
+
+function loadSchedule() {
+  const database = getDb();
+  const members = database
+    .prepare("SELECT id, name FROM members ORDER BY sort_order ASC, name ASC")
+    .all();
+  const dayRows = database
+    .prepare("SELECT day, comment FROM days ORDER BY sort_order ASC, day ASC")
+    .all();
+  const assignmentRows = database
+    .prepare("SELECT day, slot, member_id FROM assignments")
+    .all();
+
+  const assignments = {};
+  dayRows.forEach((row) => {
+    assignments[row.day] = {
+      morning: null,
+      afternoon: null,
+      comment: row.comment || ""
+    };
+  });
+
+  assignmentRows.forEach((row) => {
+    assignments[row.day] = assignments[row.day] || {
+      morning: null,
+      afternoon: null,
+      comment: ""
+    };
+    assignments[row.day][row.slot] = row.member_id || null;
+  });
+
+  return {
+    clubName: "Club des Grangettes",
+    slots: SLOT_KEYS,
+    members,
+    days: dayRows.map((row) => row.day),
+    assignments
+  };
+}
+
+function loadConfig() {
+  const database = getDb();
+  const titleRow = database.prepare("SELECT value FROM app_meta WHERE key = ?").get("title");
+
+  return {
+    title: titleRow?.value || createDefaultConfig().title
+  };
+}
+
+function updateAssignment(memberId, day, slot) {
+  const database = getDb();
+  const memberExists = database.prepare("SELECT 1 FROM members WHERE id = ?").get(memberId);
+  const dayExists = database.prepare("SELECT 1 FROM days WHERE day = ?").get(day);
+
+  if (!memberExists || !dayExists || !SLOT_KEYS.includes(slot)) {
+    throw new Error("Mise a jour du creneau invalide");
+  }
+
+  const current = database
+    .prepare("SELECT member_id FROM assignments WHERE day = ? AND slot = ?")
+    .get(day, slot);
+  const nextOwner = current?.member_id === memberId ? null : memberId;
+
+  database
+    .prepare(
+      "INSERT INTO assignments (day, slot, member_id) VALUES (?, ?, ?) ON CONFLICT(day, slot) DO UPDATE SET member_id = excluded.member_id"
+    )
+    .run(day, slot, nextOwner);
+}
+
+function updateComment(day, comment) {
+  const database = getDb();
+  const result = database
+    .prepare("UPDATE days SET comment = ? WHERE day = ?")
+    .run(String(comment || "").slice(0, 280), day);
+
+  if (result.changes === 0) {
+    throw new Error("Mise a jour du commentaire invalide");
+  }
+}
+
+function replaceMembers(members) {
+  const database = getDb();
+  const keepIds = new Set(members.map((member) => member.id));
+  const placeholders = members.map(() => "(?, ?, ?)").join(", ");
+  const values = [];
+
+  members.forEach((member, index) => {
+    values.push(member.id, member.name, index);
+  });
+
+  const transaction = database.transaction(() => {
+    if (members.length > 0) {
+      database.prepare("DELETE FROM members WHERE id NOT IN (" + members.map(() => "?").join(", ") + ")").run(...members.map((member) => member.id));
+      database
+        .prepare(
+          "INSERT INTO members (id, name, sort_order) VALUES " +
+            placeholders +
+            " ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order"
+        )
+        .run(...values);
+    }
+
+    const staleAssignments = database
+      .prepare("SELECT day, slot, member_id FROM assignments WHERE member_id IS NOT NULL")
+      .all()
+      .filter((row) => !keepIds.has(row.member_id));
+
+    const clearAssignment = database.prepare(
+      "UPDATE assignments SET member_id = NULL WHERE day = ? AND slot = ?"
+    );
+    staleAssignments.forEach((row) => {
+      clearAssignment.run(row.day, row.slot);
+    });
+  });
+
+  transaction();
+}
+
+function replaceDays(days) {
+  const database = getDb();
+  const existingComments = new Map(
+    database.prepare("SELECT day, comment FROM days").all().map((row) => [row.day, row.comment || ""])
+  );
+
+  const transaction = database.transaction(() => {
+    if (days.length > 0) {
+      database.prepare("DELETE FROM days WHERE day NOT IN (" + days.map(() => "?").join(", ") + ")").run(...days);
+
+      const upsertDay = database.prepare(
+        "INSERT INTO days (day, sort_order, comment) VALUES (?, ?, ?) ON CONFLICT(day) DO UPDATE SET sort_order = excluded.sort_order"
+      );
+      const upsertAssignment = database.prepare(
+        "INSERT INTO assignments (day, slot, member_id) VALUES (?, ?, NULL) ON CONFLICT(day, slot) DO NOTHING"
+      );
+
+      days.forEach((day, index) => {
+        upsertDay.run(day, index, existingComments.get(day) || "");
+        SLOT_KEYS.forEach((slot) => {
+          upsertAssignment.run(day, slot);
+        });
+      });
+    }
+  });
+
+  transaction();
+}
+
+function resetScheduleFromSeed() {
+  const database = getDb();
+  const seed = createSeedData();
+  const assignments = ensureAssignmentsForDays(seed.days, seed.assignments);
+
+  const transaction = database.transaction(() => {
+    database.exec(`
+      DELETE FROM assignments;
+      DELETE FROM days;
+      DELETE FROM members;
+    `);
+
+    const insertMember = database.prepare(
+      "INSERT INTO members (id, name, sort_order) VALUES (?, ?, ?)"
+    );
+    seed.members.forEach((member, index) => {
+      insertMember.run(member.id, member.name, index);
+    });
+
+    const insertDay = database.prepare(
+      "INSERT INTO days (day, sort_order, comment) VALUES (?, ?, ?)"
+    );
+    const insertAssignment = database.prepare(
+      "INSERT INTO assignments (day, slot, member_id) VALUES (?, ?, ?)"
+    );
+
+    seed.days.forEach((day, index) => {
+      const current = assignments[day];
+      insertDay.run(day, index, current.comment || "");
+      SLOT_KEYS.forEach((slot) => {
+        insertAssignment.run(day, slot, current[slot] || null);
+      });
+    });
+  });
+
+  transaction();
 }
 
 function cleanupSessions() {
-  const now = Date.now();
+  getDb().prepare("DELETE FROM admin_sessions WHERE expires_at <= ?").run(Date.now());
+}
 
-  for (const [token, session] of sessions.entries()) {
-    if (session.expiresAt <= now) {
-      sessions.delete(token);
-    }
-  }
+function createSession(username) {
+  const token = crypto.randomBytes(24).toString("hex");
+  getDb()
+    .prepare("INSERT INTO admin_sessions (token, username, expires_at) VALUES (?, ?, ?)")
+    .run(token, username, Date.now() + SESSION_TTL_MS);
+  return token;
 }
 
 function getSession(request) {
   cleanupSessions();
-  const cookies = parseCookies(request);
-  const token = cookies[SESSION_COOKIE_NAME];
+  const token = parseCookies(request)[SESSION_COOKIE_NAME];
 
   if (!token) {
     return null;
   }
 
-  const session = sessions.get(token);
+  const session = getDb()
+    .prepare("SELECT token, username, expires_at FROM admin_sessions WHERE token = ?")
+    .get(token);
 
-  if (!session || session.expiresAt <= Date.now()) {
-    sessions.delete(token);
+  if (!session || session.expires_at <= Date.now()) {
+    getDb().prepare("DELETE FROM admin_sessions WHERE token = ?").run(token);
     return null;
   }
 
-  session.expiresAt = Date.now() + SESSION_TTL_MS;
-  return { token, ...session };
+  getDb()
+    .prepare("UPDATE admin_sessions SET expires_at = ? WHERE token = ?")
+    .run(Date.now() + SESSION_TTL_MS, token);
+
+  return {
+    token: session.token,
+    username: session.username,
+    expiresAt: session.expires_at
+  };
+}
+
+function deleteSession(token) {
+  getDb().prepare("DELETE FROM admin_sessions WHERE token = ?").run(token);
 }
 
 function setSessionCookie(response, token) {
@@ -340,25 +631,19 @@ function requireAdmin(request, response) {
   return false;
 }
 
-function loadSchedule() {
-  return safeReadJson(RUNTIME_DATA_FILE);
+function sendJson(response, statusCode, payload) {
+  response.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+  response.end(JSON.stringify(payload));
 }
 
-function saveSchedule(schedule) {
-  writeJson(RUNTIME_DATA_FILE, schedule);
-}
-
-function loadConfig() {
-  try {
-    return {
-      ...createDefaultConfig(),
-      ...safeReadJson(CONFIG_FILE)
-    };
-  } catch (_error) {
-    const fallback = createDefaultConfig();
-    writeJson(CONFIG_FILE, fallback);
-    return fallback;
-  }
+function sendText(response, statusCode, text) {
+  response.writeHead(statusCode, {
+    "Content-Type": "text/plain; charset=utf-8"
+  });
+  response.end(text);
 }
 
 function getContentType(filePath) {
@@ -432,7 +717,7 @@ async function handleApi(request, response, pathname) {
       status: "ok",
       host: HOST,
       port: PORT,
-      runtimeDataFile: RUNTIME_DATA_FILE,
+      databaseFile: DB_FILE,
       seedDataFile: SEED_DATA_FILE
     });
     return true;
@@ -476,7 +761,7 @@ async function handleApi(request, response, pathname) {
     const session = getSession(request);
 
     if (session) {
-      sessions.delete(session.token);
+      deleteSession(session.token);
     }
 
     clearSessionCookie(response);
@@ -488,51 +773,26 @@ async function handleApi(request, response, pathname) {
     const raw = await readRequestBody(request);
     const payload = JSON.parse(raw || "{}");
     const { memberId, day, slot } = payload;
-    const schedule = loadSchedule();
-    const memberExists = schedule.members.some((member) => member.id === memberId);
-    const dayExists = schedule.days.includes(day);
-    const slotExists = schedule.slots.includes(slot);
 
-    if (!memberExists || !dayExists || !slotExists) {
-      sendJson(response, 400, { error: "Mise à jour du créneau invalide" });
-      return true;
+    try {
+      updateAssignment(memberId, day, slot);
+      sendJson(response, 200, loadSchedule());
+    } catch (_error) {
+      sendJson(response, 400, { error: "Mise a jour du creneau invalide" });
     }
-
-    schedule.assignments[day] = schedule.assignments[day] || {
-      morning: null,
-      afternoon: null,
-      comment: ""
-    };
-
-    const currentOwner = schedule.assignments[day][slot];
-    schedule.assignments[day][slot] = currentOwner === memberId ? null : memberId;
-
-    saveSchedule(schedule);
-    sendJson(response, 200, schedule);
     return true;
   }
 
   if (request.method === "PUT" && pathname === "/api/comment") {
     const raw = await readRequestBody(request);
     const payload = JSON.parse(raw || "{}");
-    const { day, comment } = payload;
-    const schedule = loadSchedule();
-    const dayExists = schedule.days.includes(day);
 
-    if (!dayExists || typeof comment !== "string") {
-      sendJson(response, 400, { error: "Mise à jour du commentaire invalide" });
-      return true;
+    try {
+      updateComment(payload.day, payload.comment);
+      sendJson(response, 200, loadSchedule());
+    } catch (_error) {
+      sendJson(response, 400, { error: "Mise a jour du commentaire invalide" });
     }
-
-    schedule.assignments[day] = schedule.assignments[day] || {
-      morning: null,
-      afternoon: null,
-      comment: ""
-    };
-    schedule.assignments[day].comment = comment.slice(0, 280);
-
-    saveSchedule(schedule);
-    sendJson(response, 200, schedule);
     return true;
   }
 
@@ -551,22 +811,8 @@ async function handleApi(request, response, pathname) {
       return true;
     }
 
-    const allowedMemberIds = new Set(members.map((member) => member.id));
-    const assignments = ensureAssignmentsForDays(schedule.days, schedule.assignments);
-
-    schedule.days.forEach((day) => {
-      schedule.slots.forEach((slot) => {
-        if (!allowedMemberIds.has(assignments[day][slot])) {
-          assignments[day][slot] = null;
-        }
-      });
-    });
-
-    schedule.members = members;
-    schedule.assignments = assignments;
-
-    saveSchedule(schedule);
-    sendJson(response, 200, schedule);
+    replaceMembers(members);
+    sendJson(response, 200, loadSchedule());
     return true;
   }
 
@@ -584,12 +830,8 @@ async function handleApi(request, response, pathname) {
       return true;
     }
 
-    const schedule = loadSchedule();
-    schedule.days = days;
-    schedule.assignments = ensureAssignmentsForDays(days, schedule.assignments);
-
-    saveSchedule(schedule);
-    sendJson(response, 200, schedule);
+    replaceDays(days);
+    sendJson(response, 200, loadSchedule());
     return true;
   }
 
@@ -598,16 +840,13 @@ async function handleApi(request, response, pathname) {
       return true;
     }
 
-    const fresh = createSeedData();
-    saveSchedule(fresh);
-    sendJson(response, 200, fresh);
+    resetScheduleFromSeed();
+    sendJson(response, 200, loadSchedule());
     return true;
   }
 
   return false;
 }
-
-ensureDataFile();
 
 const server = http.createServer(async (request, response) => {
   try {
@@ -624,6 +863,8 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
+getDb();
+
 if (require.main === module) {
   server.listen(PORT, HOST, () => {
     console.log(`Grangettes prototype running at http://${HOST}:${PORT}`);
@@ -632,18 +873,18 @@ if (require.main === module) {
 
 module.exports = {
   buildUpcomingClubDays,
-  createSeedData,
   createDefaultConfig,
+  createSeedData,
   ensureAssignmentsForDays,
+  formatDateKey,
+  getDb,
   hashPassword,
   loadConfig,
   loadSchedule,
+  nextMonday,
   normalizeDays,
   normalizeMembers,
   parseCookies,
   verifyPassword,
-  saveSchedule,
-  nextMonday,
-  formatDateKey,
   server
 };
